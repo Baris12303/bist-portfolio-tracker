@@ -1,5 +1,7 @@
 # 📈 BIST Portföy Takip & Teknik Analiz Paneli
 
+> 🌐 **Canlı Uygulama Linki:** [bist-terminal.streamlit.app](https://bist-terminal.streamlit.app)
+
 Borsa İstanbul (BIST) hisselerini canlı olarak takip eden, portföy kâr/zarar durumunu anlık hesaplayan ve teknik analiz göstergeleri (SMA20, SMA50) sunan interaktif web gösterge paneli (dashboard).
 
 ## 🚀 Özellikler
