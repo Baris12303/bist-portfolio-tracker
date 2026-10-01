@@ -2,13 +2,13 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 
 portfoy = {
-    "AKBNK.IS": {"maliyet":67.04, "adet": 10},
-    "ASELS.IS": {"maliyet":121.33, "adet": 12},
-    "KCHOL.IS": {"maliyet":184.35, "adet": 13},
-    "MGROS.IS": {"maliyet":610.20, "adet": 5},
-    "SAHOL.IS": {"maliyet":89.81, "adet": 23},
-    "THYAO.IS": {"maliyet":311.62, "adet": 8},
-    "TUPRS.IS": {"maliyet":156.66, "adet": 14},
+    "AKBNK.IS": {"maliyet": 62.50, "adet": 150},
+    "ASELS.IS": {"maliyet": 390.00, "adet": 40},
+    "KCHOL.IS": {"maliyet": 195.00, "adet": 60},
+    "MGROS.IS": {"maliyet": 480.00, "adet": 25},
+    "SAHOL.IS": {"maliyet": 91.00, "adet": 100},
+    "THYAO.IS": {"maliyet": 265.00, "adet": 50},
+    "TUPRS.IS": {"maliyet": 360.00, "adet": 30},
 }
 
 toplamMaliyet = 0
