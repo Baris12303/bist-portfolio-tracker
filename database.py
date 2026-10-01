@@ -1,64 +1,118 @@
-import sqlite3
+import hashlib
+import streamlit as st
+from supabase import create_client, Client
 
-DB_NAME = "portfolio.db"
+def sifre_hashle(parola: str) -> str:
+    """Kullanıcı parolasını güvenli SHA-256 algoritmasıyla özetler."""
+    return hashlib.sha256(parola.encode('utf-8')).hexdigest()
 
 def veritabanini_baslat():
-    """Eğer yoksa veritabanı dosyasını ve portfoy tablosunu oluşturur."""
-    baglanti = sqlite3.connect(DB_NAME)
-    imlec = baglanti.cursor()
-    imlec.execute("""
-        CREATE TABLE IF NOT EXISTS portfoy (
-            sembol TEXT PRIMARY KEY,
-            maliyet REAL,
-            adet INTEGER
-        )
-    """)
-    baglanti.commit()
-    baglanti.close()
+    """Geriye dönük uyumluluk fonksiyonu."""
+    pass
 
-def portfoyu_getir():
-    """Veritabanındaki tüm hisseleri bir sözlük (dict) olarak döndürür."""
-    baglanti = sqlite3.connect(DB_NAME)
-    imlec = baglanti.cursor()
-    imlec.execute("SELECT sembol, maliyet, adet FROM portfoy")
-    satirlar = imlec.fetchall()
-    baglanti.close()
+def get_supabase() -> Client:
+    """Streamlit Secrets veya yerel ayarlardan Supabase istemcisini başlatır."""
+    url = st.secrets.get("SUPABASE_URL", "")
+    key = st.secrets.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return None
+    return create_client(url, key)
+
+# --- KULLANICI İŞLEMLERİ (AUTH) ---
+
+def kullanici_kayit_ol(email: str, parola: str, ad_soyad: str):
+    """Yeni kullanıcı kaydeder ve başlangıç için örnek hisselerini yükler."""
+    sb = get_supabase()
+    if not sb:
+        return False, "Veritabanı bağlantısı kurulamadı."
     
-    # Koddaki mevcut yapımıza uygun dict formatına dönüştürüyoruz
+    email = email.lower().strip()
+    
+    # E-posta daha önce alınmış mı kontrol et
+    mevcut = sb.table("kullanicilar").select("email").eq("email", email).execute()
+    if mevcut.data:
+        return False, "Bu e-posta adresi ile zaten bir hesap var!"
+    
+    # Kullanıcıyı ekle
+    parola_hash = sifre_hashle(parola)
+    sb.table("kullanicilar").insert({
+        "email": email,
+        "parola_hash": parola_hash,
+        "ad_soyad": ad_soyad,
+        "rol": "free"
+    }).execute()
+    
+    # Kullanıcıya başlangıçta hazır örnek portföy ata
+    kullanici_ornek_portfoy_yukle(email)
+    return True, "Kayıt başarılı! Şimdi giriş yapabilirsiniz."
+
+def kullanici_giris_yap(email: str, parola: str):
+    """E-posta ve parola kontrolü yapar."""
+    sb = get_supabase()
+    if not sb:
+        return False, "Veritabanı bağlantısı kurulamadı.", None
+    
+    email = email.lower().strip()
+    parola_hash = sifre_hashle(parola)
+    
+    res = sb.table("kullanicilar").select("*").eq("email", email).eq("parola_hash", parola_hash).execute()
+    if res.data:
+        kullanici = res.data[0]
+        return True, "Giriş başarılı!", {
+            "email": kullanici["email"],
+            "ad_soyad": kullanici["ad_soyad"],
+            "rol": kullanici.get("rol", "free")
+        }
+    return False, "E-posta veya şifre hatalı!", None
+
+# --- KİŞİYE ÖZEL PORTFÖY İŞLEMLERİ (CRUD) ---
+
+def kullanici_portfoyu_getir(user_email: str) -> dict:
+    """Belirtilen kullanıcının buluttaki hisselerini sözlük olarak getirir."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return {}
+    
+    res = sb.table("portfoy").select("sembol, maliyet, adet").eq("user_email", user_email.lower().strip()).execute()
     portfoy_dict = {}
-    for sembol, maliyet, adet in satirlar:
-        portfoy_dict[sembol] = {"maliyet": maliyet, "adet": adet}
+    for row in res.data:
+        portfoy_dict[row["sembol"]] = {
+            "maliyet": float(row["maliyet"]),
+            "adet": int(row["adet"])
+        }
     return portfoy_dict
 
-def hisse_ekle_veya_guncelle(sembol, maliyet, adet):
-    """Yeni bir hisse ekler ya da var olanın maliyet/adedini günceller."""
-    baglanti = sqlite3.connect(DB_NAME)
-    imlec = baglanti.cursor()
-    imlec.execute("""
-        INSERT OR REPLACE INTO portfoy (sembol, maliyet, adet)
-        VALUES (?, ?, ?)
-    """, (sembol, maliyet, adet))
-    baglanti.commit()
-    baglanti.close()
+def kullanici_hisse_ekle_guncelle(user_email: str, sembol: str, maliyet: float, adet: int):
+    """Kullanıcının portföyüne hisse ekler veya günceller."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return
+    
+    sb.table("portfoy").upsert({
+        "user_email": user_email.lower().strip(),
+        "sembol": sembol.upper().strip(),
+        "maliyet": maliyet,
+        "adet": adet
+    }, on_conflict="user_email,sembol").execute()
 
-def hisse_sil(sembol):
-    """Veritabanından seçilen hisseyi siler."""
-    baglanti = sqlite3.connect(DB_NAME)
-    imlec = baglanti.cursor()
-    imlec.execute("DELETE FROM portfoy WHERE sembol = ?", (sembol,))
-    baglanti.commit()
-    baglanti.close()
+def kullanici_hisse_sil(user_email: str, sembol: str):
+    """Kullanıcının portföyünden seçili hisseyi siler."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return
+    
+    sb.table("portfoy").delete().eq("user_email", user_email.lower().strip()).eq("sembol", sembol).execute()
 
-def portfoyu_sifirla():
-    """Tüm portföy tablosunu boşaltır."""
-    baglanti = sqlite3.connect(DB_NAME)
-    imlec = baglanti.cursor()
-    imlec.execute("DELETE FROM portfoy")
-    baglanti.commit()
-    baglanti.close()
+def kullanici_portfoyu_sifirla(user_email: str):
+    """Kullanıcının portföyündeki tüm hisseleri siler."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return
+    
+    sb.table("portfoy").delete().eq("user_email", user_email.lower().strip()).execute()
 
-def ornek_portfoyu_yukle():
-    """Demo amaçlı varsayılan örnek portföyü yükler."""
+def kullanici_ornek_portfoy_yukle(user_email: str):
+    """Kullanıcıya örnek demo portföyü yükler."""
     demo = {
         "AKBNK.IS": (62.50, 150),
         "ASELS.IS": (390.00, 40),
@@ -69,4 +123,4 @@ def ornek_portfoyu_yukle():
         "TUPRS.IS": (360.00, 30),
     }
     for sembol, (maliyet, adet) in demo.items():
-        hisse_ekle_veya_guncelle(sembol, maliyet, adet)
+        kullanici_hisse_ekle_guncelle(user_email, sembol, maliyet, adet)

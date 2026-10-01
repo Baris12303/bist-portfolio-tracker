@@ -4,3 +4,4 @@ pandas
 matplotlib
 plotly
 google-genai
+supabase
