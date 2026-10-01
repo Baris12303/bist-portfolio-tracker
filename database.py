@@ -48,3 +48,25 @@ def hisse_sil(sembol):
     imlec.execute("DELETE FROM portfoy WHERE sembol = ?", (sembol,))
     baglanti.commit()
     baglanti.close()
+
+def portfoyu_sifirla():
+    """Tüm portföy tablosunu boşaltır."""
+    baglanti = sqlite3.connect(DB_NAME)
+    imlec = baglanti.cursor()
+    imlec.execute("DELETE FROM portfoy")
+    baglanti.commit()
+    baglanti.close()
+
+def ornek_portfoyu_yukle():
+    """Demo amaçlı varsayılan örnek portföyü yükler."""
+    demo = {
+        "AKBNK.IS": (62.50, 150),
+        "ASELS.IS": (390.00, 40),
+        "KCHOL.IS": (195.00, 60),
+        "MGROS.IS": (480.00, 25),
+        "SAHOL.IS": (91.00, 100),
+        "THYAO.IS": (265.00, 50),
+        "TUPRS.IS": (360.00, 30),
+    }
+    for sembol, (maliyet, adet) in demo.items():
+        hisse_ekle_veya_guncelle(sembol, maliyet, adet)

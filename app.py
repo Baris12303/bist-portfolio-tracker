@@ -54,7 +54,7 @@ for sembol, bilgi in portfoy.items():
 
 
 toplamKarZararTL = toplamGuncelDeger - toplamMaliyet
-toplamKarZararYuzde =  ((toplamGuncelDeger - toplamMaliyet)/toplamMaliyet) * 100
+toplamKarZararYuzde = ((toplamGuncelDeger - toplamMaliyet)/toplamMaliyet) * 100 if toplamMaliyet > 0 else 0.0
 
 # --- SOL MENÜ (PORTFÖY YÖNETİMİ) ---
 st.sidebar.header("⚙️ Portföy Yönetimi")
@@ -82,6 +82,19 @@ if portfoy:
         st.sidebar.warning(f"{silinecek_hisse} silindi!")
         st.rerun()
 
+st.sidebar.divider()
+st.sidebar.subheader("⚡ Hızlı İşlemler")
+col_btn1, col_btn2 = st.sidebar.columns(2)
+with col_btn1:
+    if st.button("🧹 Sıfırla"):
+        database.portfoyu_sifirla()
+        st.rerun()
+with col_btn2:
+    if st.button("📥 Örnek Veri"):
+        database.ornek_portfoyu_yukle()
+        st.rerun()
+
+
 # Web Sayfasındaki Başlıklarımız
 st.title("📈 BIST Portföy Takip & Analiz Paneli")
 st.write("Canlı borsa verileriyle portföy kâr/zarar ve teknik analiz durumu.")
@@ -100,6 +113,10 @@ with col3:
         value=f"{toplamKarZararTL:.2f} TL",
         delta=f"%{toplamKarZararYuzde:.2f}"
     )
+
+if not portfoy:
+    st.info("💡 Portföyünüz şu an boş. Sol menüden yeni hisse ekleyebilir veya '📥 Örnek Veri' butonuna basarak demo portföyü yükleyebilirsiniz.")
+    st.stop()
 
 st.divider() # Araya şık bir çizgi çeker
 st.subheader("📋 Portföy Detayları")
