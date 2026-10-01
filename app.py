@@ -303,9 +303,10 @@ Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz 
 
 (Yatırım tavsiyesi olmadığını belirten kısa bir not ekle).
 """
-                # Geçici sunucu yoğunluğu (503) durumunda yedek modellere geçiş mekanizması
-                modeller = ["gemini-3.8-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+                # En popüler ve kararlı Gemini modellerini sırayla dener
+                modeller = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-3.8-flash", "gemini-1.5-pro"]
                 analiz_tamamlandi = False
+                son_hata = ""
                 
                 for model_adi in modeller:
                     try:
@@ -317,12 +318,10 @@ Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz 
                         analiz_tamamlandi = True
                         break
                     except Exception as err:
-                        if "503" in str(err) or "404" in str(err):
-                            continue
-                        else:
-                            raise err
+                        son_hata = str(err)
+                        continue
                 
                 if not analiz_tamamlandi:
-                    st.error("Google Gemini sunucularında şu an geçici bir yoğunluk var, lütfen 10-15 saniye sonra tekrar deneyin.")
+                    st.error(f"Yapay zeka analizi alınamadı. Hata detayı: {son_hata}")
             except Exception as e:
                 st.error(f"Yapay zeka analizi sırasında bir hata oluştu: {e}")
