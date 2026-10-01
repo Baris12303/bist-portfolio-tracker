@@ -103,6 +103,21 @@ with col_btn2:
         database.ornek_portfoyu_yukle()
         st.rerun()
 
+# 3. Yapay Zeka Anahtarı (Önce güvenli kasadan okur)
+gemini_key = st.secrets.get("GEMINI_API_KEY", "")
+
+# Kasada anahtar yoksa manuel giriş kutusu göster
+if not gemini_key:
+    st.sidebar.divider()
+    st.sidebar.subheader("🤖 Yapay Zeka Asistanı")
+    gemini_key = st.sidebar.text_input(
+        "Gemini API Anahtarı:", 
+        type="password", 
+        help="aistudio.google.com adresinden ücretsiz alabilirsiniz."
+    )
+else:
+    st.sidebar.divider()
+    st.sidebar.caption("🤖 Yapay zeka asistanı aktif")
 
 # Web Sayfasındaki Başlıklarımız
 st.title("📈 BIST Portföy Takip & Analiz Paneli")
@@ -249,3 +264,65 @@ fig_rsi.add_hline(y=70, line_dash="dash", line_color="#ef4444", annotation_text=
 fig_rsi.add_hline(y=30, line_dash="dash", line_color="#22c55e", annotation_text="Aşırı Satım (30)")
 fig_rsi.update_layout(title="RSI (Göreceli Güç Endeksi) - Son 6 Ay", yaxis_range=[0, 100], height=250, margin=dict(t=30, b=20, l=20, r=20))
 st.plotly_chart(fig_rsi, use_container_width=True)
+
+st.divider()
+st.subheader("🤖 Yapay Zeka Portföy Analisti (Google Gemini)")
+st.write("Büyük dil modeli portföyünüzün risk dengesini ve seçili hissenizi canlı analiz etsin.")
+
+if st.button("🧠 Portföyümü ve Hisselerimi Yorumla"):
+    if not gemini_key:
+        st.warning("⚠️ Lütfen sol menüden ücretsiz Gemini API anahtarınızı girin! (aistudio.google.com adresinden 10 saniyede alabilirsiniz)")
+    else:
+        with st.spinner("🤖 Gemini portföyünüzü ve teknik indikatörleri inceliyor..."):
+            try:
+                from google import genai
+                client = genai.Client(api_key=gemini_key)
+                
+                prompt = f"""
+Sen Borsa İstanbul (BIST) konusunda uzman kıdemli bir portföy yöneticisi ve teknik analistsin.
+Aşağıda yatırımcının canlı portföy ve piyasa verileri yer alıyor:
+
+- Toplam Portföy Değeri: {toplamGuncelDeger:.2f} TL
+- Toplam Maliyet: {toplamMaliyet:.2f} TL
+- Toplam Net Kâr/Zarar: {toplamKarZararTL:.2f} TL (%{toplamKarZararYuzde:.2f})
+- BIST 100 Karşılaştırması: Portföy BIST 100 endeksine göre %{fark:.1f} fark yaptı.
+- Portföydeki Hisseler: {list(portfoy.keys())}
+- En Çok Kazandıran: {enIyiHisse} (+%{enYuksekKar:.2f})
+- En Çok Kaybettiren: {enKotuHisse} (%{enDusukKar:.2f})
+
+İncelenen Seçili Hisse: {secilen}
+- Güncel Fiyat: {gecmisSecilen['Close'].iloc[-1]:.2f} TL (Maliyet: {secilenMaliyet:.2f} TL)
+- 14 Günlük RSI: {guncel_rsi:.1f}
+- SMA 20 (Kısa Vade Trend): {gecmisSecilen['SMA20'].iloc[-1]:.2f} TL
+- SMA 50 (Orta Vade Trend): {gecmisSecilen['SMA50'].iloc[-1]:.2f} TL
+
+Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz sun:
+1. 📊 **Portföy Sağlık & Risk Değerlendirmesi:** (Çeşitlendirme, kâr/zarar dengesi ve BIST100'e göre durumu)
+2. 🔍 **{secilen} Teknik Analiz Yorumu:** (Fiyatın SMA20 ve SMA50'ye göre konumu, RSI ne söylüyor?)
+3. 💡 **Stratejik Öneriler:** (Kısa ve orta vadede nelere dikkat edilmeli?)
+
+(Yatırım tavsiyesi olmadığını belirten kısa bir not ekle).
+"""
+                # Geçici sunucu yoğunluğu (503) durumunda yedek modellere geçiş mekanizması
+                modeller = ["gemini-3.8-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+                analiz_tamamlandi = False
+                
+                for model_adi in modeller:
+                    try:
+                        cevap = client.models.generate_content(
+                            model=model_adi,
+                            contents=prompt
+                        )
+                        st.markdown(cevap.text)
+                        analiz_tamamlandi = True
+                        break
+                    except Exception as err:
+                        if "503" in str(err) or "404" in str(err):
+                            continue
+                        else:
+                            raise err
+                
+                if not analiz_tamamlandi:
+                    st.error("Google Gemini sunucularında şu an geçici bir yoğunluk var, lütfen 10-15 saniye sonra tekrar deneyin.")
+            except Exception as e:
+                st.error(f"Yapay zeka analizi sırasında bir hata oluştu: {e}")
