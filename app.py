@@ -386,21 +386,107 @@ fig_trend.update_layout(
 )
 st.plotly_chart(fig_trend, use_container_width=True)
 
-# RSI Durum Rozeti
-if guncel_rsi > 70:
-    st.warning(f"⚠️ **RSI Değeri: {guncel_rsi:.1f}** — Aşırı Alım Bölgesi (Hisse şişmiş, dikkatli ol)")
-elif guncel_rsi < 30:
-    st.success(f"💎 **RSI Değeri: {guncel_rsi:.1f}** — Aşırı Satım Bölgesi (Hisse dipte, alım fırsatı olabilir)")
-else:
-    st.info(f"⚖️ **RSI Değeri: {guncel_rsi:.1f}** — Nötr Bölge")
+# RSI ve MACD Rozetleri ve Göstergeleri
+# MACD (12, 26, 9) Hesabı
+ema12 = gecmisSecilen['Close'].ewm(span=12, adjust=False).mean()
+ema26 = gecmisSecilen['Close'].ewm(span=26, adjust=False).mean()
+gecmisSecilen['MACD'] = ema12 - ema26
+gecmisSecilen['Signal'] = gecmisSecilen['MACD'].ewm(span=9, adjust=False).mean()
+gecmisSecilen['Hist'] = gecmisSecilen['MACD'] - gecmisSecilen['Signal']
+
+guncel_macd = float(gecmisSecilen['MACD'].iloc[-1])
+guncel_signal = float(gecmisSecilen['Signal'].iloc[-1])
+guncel_sma20 = float(gecmisSecilen['SMA20'].iloc[-1])
+guncel_sma50 = float(gecmisSecilen['SMA50'].iloc[-1])
+
+macd_al = guncel_macd > guncel_signal
+golden_cross = guncel_sma20 > guncel_sma50
+
+# 3'lü İndikatör Sinyal Rozetleri
+c_ind1, c_ind2, c_ind3 = st.columns(3)
+
+with c_ind1:
+    if guncel_rsi > 70:
+        st.warning(f"⚠️ **RSI: {guncel_rsi:.1f}**\nAşırı Alım (Düzeltme Riski)")
+    elif guncel_rsi < 30:
+        st.success(f"💎 **RSI: {guncel_rsi:.1f}**\nAşırı Satım (Dip Fırsatı)")
+    else:
+        st.info(f"⚖️ **RSI: {guncel_rsi:.1f}**\nNötr Bölge")
+
+with c_ind2:
+    if macd_al:
+        st.success(f"🟢 **MACD: {guncel_macd:.2f}**\nBoğa Gücü (Alıcılar Üstün)")
+    else:
+        st.error(f"🔴 **MACD: {guncel_macd:.2f}**\nAyı Baskısı (Satıcılar Üstün)")
+
+with c_ind3:
+    if golden_cross:
+        st.success(f"🏆 **Trend:** Altın Kesişim\nSMA 20 > SMA 50 (Yükseliş Trendi)")
+    else:
+        st.error(f"💀 **Trend:** Düşüş Eğilimi\nSMA 20 < SMA 50 (Satış Baskısı)")
 
 # İnteraktif RSI Grafiği
 fig_rsi = go.Figure()
 fig_rsi.add_trace(go.Scatter(x=gecmisSecilen.index, y=gecmisSecilen['RSI'], name='RSI (14)', line=dict(color='#a855f7', width=2)))
 fig_rsi.add_hline(y=70, line_dash="dash", line_color="#ef4444", annotation_text="Aşırı Alım (70)")
 fig_rsi.add_hline(y=30, line_dash="dash", line_color="#22c55e", annotation_text="Aşırı Satım (30)")
-fig_rsi.update_layout(title="RSI (Göreceli Güç Endeksi) - Son 6 Ay", yaxis_range=[0, 100], height=250, margin=dict(t=30, b=20, l=20, r=20))
+fig_rsi.update_layout(title="RSI (Göreceli Güç Endeksi) - Son 6 Ay", yaxis_range=[0, 100], height=240, margin=dict(t=30, b=20, l=20, r=20))
 st.plotly_chart(fig_rsi, use_container_width=True)
+
+# İnteraktif MACD Grafiği
+fig_macd = go.Figure()
+renkler = ['#10b981' if val >= 0 else '#ef4444' for val in gecmisSecilen['Hist']]
+fig_macd.add_trace(go.Bar(
+    x=gecmisSecilen.index,
+    y=gecmisSecilen['Hist'],
+    name='Histogram',
+    marker_color=renkler,
+    opacity=0.6
+))
+fig_macd.add_trace(go.Scatter(
+    x=gecmisSecilen.index,
+    y=gecmisSecilen['MACD'],
+    name='MACD (12,26)',
+    line=dict(color='#2563eb', width=2)
+))
+fig_macd.add_trace(go.Scatter(
+    x=gecmisSecilen.index,
+    y=gecmisSecilen['Signal'],
+    name='Sinyal (9)',
+    line=dict(color='#f59e0b', width=1.5, dash='dot')
+))
+fig_macd.update_layout(
+    title=f"📊 {secilen} - MACD & Sinyal Kesişim Grafiği",
+    height=260,
+    margin=dict(t=30, b=20, l=20, r=20),
+    hovermode="x unified"
+)
+st.plotly_chart(fig_macd, use_container_width=True)
+
+# 🧪 Mini Strateji Backtest Testi
+with st.expander(f"🧪 Strateji Testi: {secilen} için MACD Al-Sat Kârlı mıydı?"):
+    try:
+        df_sim = gecmisSecilen.copy()
+        df_sim['Pozisyon'] = (df_sim['MACD'] > df_sim['Signal']).astype(int).shift(1)
+        df_sim['Gunluk_Getiri'] = df_sim['Close'].pct_change()
+        df_sim['Strateji_Getiri'] = df_sim['Gunluk_Getiri'] * df_sim['Pozisyon']
+
+        getiri_bh = ((1 + df_sim['Gunluk_Getiri'].dropna()).prod() - 1) * 100
+        getiri_strat = ((1 + df_sim['Strateji_Getiri'].dropna()).prod() - 1) * 100
+
+        col_sim1, col_sim2 = st.columns(2)
+        with col_sim1:
+            st.metric("Alıp Bekleme Getirisi (Buy & Hold)", f"%{getiri_bh:.2f}")
+        with col_sim2:
+            fark_strat = getiri_strat - getiri_bh
+            st.metric("MACD Sinyal Stratejisi Getirisi", f"%{getiri_strat:.2f}", delta=f"%{fark_strat:.2f} Strateji Farkı")
+        
+        if getiri_strat > getiri_bh:
+            st.success("🎯 **Sonuç:** Son 6 ayda MACD kesişimlerini takip etmek hisseyi sürekli elde tutmaktan daha kârlı olmuş!")
+        else:
+            st.info("ℹ️ **Sonuç:** Güçlü trendlerde veya yatay piyasada hissede kalıp beklemek (Buy & Hold) daha yüksek getiri sağlamış.")
+    except Exception:
+        st.caption("Simülasyon için yeterli geçmiş veri hesaplanamadı.")
 
 st.divider()
 st.subheader("🤖 Yapay Zeka Portföy Analisti (Google Gemini)")
@@ -431,8 +517,10 @@ Aşağıda yatırımcının canlı portföy ve piyasa verileri yer alıyor:
 İncelenen Seçili Hisse: {secilen}
 - Güncel Fiyat: {gecmisSecilen['Close'].iloc[-1]:.2f} TL (Maliyet: {secilenMaliyet:.2f} TL)
 - 14 Günlük RSI: {guncel_rsi:.1f}
-- SMA 20 (Kısa Vade Trend): {gecmisSecilen['SMA20'].iloc[-1]:.2f} TL
-- SMA 50 (Orta Vade Trend): {gecmisSecilen['SMA50'].iloc[-1]:.2f} TL
+- SMA 20 (Kısa Vade Trend): {guncel_sma20:.2f} TL
+- SMA 50 (Orta Vade Trend): {guncel_sma50:.2f} TL
+- MACD Durumu: {guncel_macd:.2f} (Sinyal Çizgisi: {guncel_signal:.2f} | {'🟢 Boğa Alım Bölgesi' if macd_al else '🔴 Ayı Satım Baskısı'})
+- Trend Durumu: {'🏆 Altın Kesişim (Golden Cross - Yükseliş Trendi)' if golden_cross else '💀 SMA20 < SMA50 (Düşüş Eğilimi)'}
 
 Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz sun:
 1. 📊 **Portföy Sağlık & Risk Değerlendirmesi:** (Çeşitlendirme, kâr/zarar dengesi ve BIST100'e göre durumu)
