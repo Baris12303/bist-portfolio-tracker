@@ -56,6 +56,15 @@ for sembol, bilgi in portfoy.items():
 toplamKarZararTL = toplamGuncelDeger - toplamMaliyet
 toplamKarZararYuzde = ((toplamGuncelDeger - toplamMaliyet)/toplamMaliyet) * 100 if toplamMaliyet > 0 else 0.0
 
+# BIST 100 (XU100) Getirisi Hesaplama
+try:
+    bist_veri = yf.Ticker("XU100.IS").history(period="6mo")
+    bist_getiri = ((bist_veri['Close'].iloc[-1] - bist_veri['Close'].iloc[0]) / bist_veri['Close'].iloc[0]) * 100
+except:
+    bist_getiri = 0.0
+
+fark = toplamKarZararYuzde - bist_getiri
+
 # --- SOL MENÜ (PORTFÖY YÖNETİMİ) ---
 st.sidebar.header("⚙️ Portföy Yönetimi")
 
@@ -99,7 +108,7 @@ with col_btn2:
 st.title("📈 BIST Portföy Takip & Analiz Paneli")
 st.write("Canlı borsa verileriyle portföy kâr/zarar ve teknik analiz durumu.")
 
-col1, col2, col3 = st.columns(3)
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.metric(label="Toplam Yatırılan Maliyet", value=f"{toplamMaliyet:.2f} TL")
@@ -112,6 +121,13 @@ with col3:
         label="Toplam Kâr/Zarar",
         value=f"{toplamKarZararTL:.2f} TL",
         delta=f"%{toplamKarZararYuzde:.2f}"
+    )
+
+with col4:
+    st.metric(
+        label="BIST 100 vs Portföy (6 Ay)",
+        value=f"BIST: %{bist_getiri:.1f}",
+        delta=f"%{fark:.1f} Fark"
     )
 
 if not portfoy:
@@ -162,6 +178,16 @@ secilenMaliyet = portfoy[secilen]["maliyet"]
 gecmisSecilen['SMA20'] = gecmisSecilen['Close'].rolling(window=20).mean()
 gecmisSecilen['SMA50'] = gecmisSecilen['Close'].rolling(window=50).mean()
 
+# 14 Günlük RSI Hesabı (Pandas ile)
+fark_fiyat = gecmisSecilen['Close'].diff()
+kazanc = fark_fiyat.where(fark_fiyat > 0, 0.0).rolling(window=14).mean()
+kayip = (-fark_fiyat.where(fark_fiyat < 0, 0.0)).rolling(window=14).mean()
+rs = kazanc / kayip
+gecmisSecilen['RSI'] = 100 - (100 / (1 + rs))
+
+# Anlık RSI Değeri ve Durum Yorumu
+guncel_rsi = gecmisSecilen['RSI'].iloc[-1]
+
 # Modern İnteraktif Finans Grafiği
 fig_trend = go.Figure()
 
@@ -206,5 +232,20 @@ fig_trend.update_layout(
     height=450,
     margin=dict(t=40, b=20, l=20, r=20)
 )
-
 st.plotly_chart(fig_trend, use_container_width=True)
+
+# RSI Durum Rozeti
+if guncel_rsi > 70:
+    st.warning(f"⚠️ **RSI Değeri: {guncel_rsi:.1f}** — Aşırı Alım Bölgesi (Hisse şişmiş, dikkatli ol)")
+elif guncel_rsi < 30:
+    st.success(f"💎 **RSI Değeri: {guncel_rsi:.1f}** — Aşırı Satım Bölgesi (Hisse dipte, alım fırsatı olabilir)")
+else:
+    st.info(f"⚖️ **RSI Değeri: {guncel_rsi:.1f}** — Nötr Bölge")
+
+# İnteraktif RSI Grafiği
+fig_rsi = go.Figure()
+fig_rsi.add_trace(go.Scatter(x=gecmisSecilen.index, y=gecmisSecilen['RSI'], name='RSI (14)', line=dict(color='#a855f7', width=2)))
+fig_rsi.add_hline(y=70, line_dash="dash", line_color="#ef4444", annotation_text="Aşırı Alım (70)")
+fig_rsi.add_hline(y=30, line_dash="dash", line_color="#22c55e", annotation_text="Aşırı Satım (30)")
+fig_rsi.update_layout(title="RSI (Göreceli Güç Endeksi) - Son 6 Ay", yaxis_range=[0, 100], height=250, margin=dict(t=30, b=20, l=20, r=20))
+st.plotly_chart(fig_rsi, use_container_width=True)
