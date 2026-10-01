@@ -303,8 +303,19 @@ Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz 
 
 (Yatırım tavsiyesi olmadığını belirten kısa bir not ekle).
 """
-                # En popüler ve kararlı Gemini modellerini sırayla dener
-                modeller = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-3.8-flash", "gemini-1.5-pro"]
+                # Hesaba tanımlı uygun modelleri dinamik olarak alıyoruz
+                modeller = []
+                try:
+                    for m in client.models.list():
+                        m_name = getattr(m, 'name', '')
+                        if "gemini" in m_name.lower():
+                            modeller.append(m_name)
+                except Exception:
+                    pass
+
+                if not modeller:
+                    modeller = ["gemini-3.8-flash", "models/gemini-3.8-flash"]
+
                 analiz_tamamlandi = False
                 son_hata = ""
                 
@@ -318,7 +329,7 @@ Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz 
                         analiz_tamamlandi = True
                         break
                     except Exception as err:
-                        son_hata = str(err)
+                        son_hata = f"{model_adi} -> {err}"
                         continue
                 
                 if not analiz_tamamlandi:
