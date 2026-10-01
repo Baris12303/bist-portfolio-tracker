@@ -1,19 +1,15 @@
 import streamlit as st
 import yfinance as yf
 import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+import database
+database.veritabanini_baslat()
 
 # Sayfa Başlığı ve Geniş Ekran Düzeni
 st.set_page_config(page_title="BIST Portföyüm", page_icon="📈", layout="wide")
 
-portfoy = {
-    "AKBNK.IS": {"maliyet": 62.50, "adet": 150},
-    "ASELS.IS": {"maliyet": 390.00, "adet": 40},
-    "KCHOL.IS": {"maliyet": 195.00, "adet": 60},
-    "MGROS.IS": {"maliyet": 480.00, "adet": 25},
-    "SAHOL.IS": {"maliyet": 91.00, "adet": 100},
-    "THYAO.IS": {"maliyet": 265.00, "adet": 50},
-    "TUPRS.IS": {"maliyet": 360.00, "adet": 30},
-}
+portfoy = database.portfoyu_getir()
 
 toplamMaliyet = 0
 toplamGuncelDeger = 0
@@ -25,6 +21,8 @@ enKotuHisse = ""
 enDusukKar = 999999   # Başlangıçta çok büyük bir sayı veriyoruz
 
 tabloVerisi = []
+pastaEtiketler = []
+pastaDegerler = []
 
 # Son 6 aylık veriyi çekiyoruz (grafikte trendi görmek için)
 for sembol, bilgi in portfoy.items():
@@ -44,6 +42,8 @@ for sembol, bilgi in portfoy.items():
         "Kâr/Zarar (%)": round(karDurumu, 2),
         "Kâr/Zarar (TL)": round((guncelFiyat - maliyet) * adet, 2)
     })
+    pastaEtiketler.append(sembol)
+    pastaDegerler.append(guncelFiyat * adet)
     print(f"Hisse Adi: {sembol} | Maliyet: {maliyet} | Güncel Fiyat: {guncelFiyat:.2f} | Kar/Zarar: %{karDurumu:.2f}")
     if karDurumu > enYuksekKar:
         enYuksekKar = karDurumu
@@ -55,6 +55,32 @@ for sembol, bilgi in portfoy.items():
 
 toplamKarZararTL = toplamGuncelDeger - toplamMaliyet
 toplamKarZararYuzde =  ((toplamGuncelDeger - toplamMaliyet)/toplamMaliyet) * 100
+
+# --- SOL MENÜ (PORTFÖY YÖNETİMİ) ---
+st.sidebar.header("⚙️ Portföy Yönetimi")
+
+# 1. Hisse Ekleme / Güncelleme Formu
+with st.sidebar.form("hisse_ekle_formu"):
+    st.subheader("➕ Hisse Ekle / Güncelle")
+    yeni_sembol = st.text_input("Hisse Sembolü (örn: FROTO.IS)").upper().strip()
+    yeni_maliyet = st.number_input("Alış Maliyeti (TL)", min_value=0.0, step=0.5)
+    yeni_adet = st.number_input("Adet (Lot)", min_value=1, step=1)
+    
+    ekle_butonu = st.form_submit_button("Portföye Kaydet")
+    if ekle_butonu and yeni_sembol:
+        database.hisse_ekle_veya_guncelle(yeni_sembol, yeni_maliyet, yeni_adet)
+        st.success(f"{yeni_sembol} başarıyla kaydedildi!")
+        st.rerun() # Sayfayı anında yenileyip yeni veriyi gösterir
+
+# 2. Hisse Silme Formu
+if portfoy:
+    st.sidebar.divider()
+    st.sidebar.subheader("🗑️ Hisse Sil")
+    silinecek_hisse = st.sidebar.selectbox("Silmek istediğiniz hisse:", list(portfoy.keys()))
+    if st.sidebar.button("Hisseyi Portföyden Çıkar"):
+        database.hisse_sil(silinecek_hisse)
+        st.sidebar.warning(f"{silinecek_hisse} silindi!")
+        st.rerun()
 
 # Web Sayfasındaki Başlıklarımız
 st.title("📈 BIST Portföy Takip & Analiz Paneli")
@@ -79,6 +105,25 @@ st.divider() # Araya şık bir çizgi çeker
 st.subheader("📋 Portföy Detayları")
 st.dataframe(tabloVerisi, use_container_width=True)
 
+st.divider()
+st.subheader("🥧 Portföy Varlık Dağılımı")
+
+# Modern Donut (Ortası delik halka) Grafiği
+fig_pasta = px.pie(
+    names=pastaEtiketler,
+    values=pastaDegerler,
+    hole=0.45, # Ortasını delik yaparak modern SaaS görünümü verir
+    color_discrete_sequence=px.colors.qualitative.Prism
+)
+fig_pasta.update_traces(
+    textposition='inside', 
+    textinfo='percent+label',
+    hovertemplate="<b>%{label}</b><br>Toplam Değer: %{value:,.2f} TL<br>Portföy Payı: %{percent}<extra></extra>"
+)
+fig_pasta.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=380)
+
+st.plotly_chart(fig_pasta, use_container_width=True)
+
 # Şampiyon ve Düşen Hisse Kutuları
 col_iyi, col_kotu = st.columns(2)
 with col_iyi:
@@ -100,18 +145,49 @@ secilenMaliyet = portfoy[secilen]["maliyet"]
 gecmisSecilen['SMA20'] = gecmisSecilen['Close'].rolling(window=20).mean()
 gecmisSecilen['SMA50'] = gecmisSecilen['Close'].rolling(window=50).mean()
 
-# 3. Grafiği web için hazırlayıp çizdiriyoruz
-fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(gecmisSecilen.index, gecmisSecilen['Close'], label="Kapanış Fiyatı (TL)", color="blue")
-ax.plot(gecmisSecilen.index, gecmisSecilen['SMA20'], label="SMA 20 (Kısa Vade)", color="orange")
-ax.plot(gecmisSecilen.index, gecmisSecilen['SMA50'], label="SMA 50 (Orta Vade)", color="purple")
-ax.axhline(y=secilenMaliyet, color="red", linestyle="--", label="Maliyetim")
+# Modern İnteraktif Finans Grafiği
+fig_trend = go.Figure()
 
-ax.set_title(f"{secilen} - Son 6 Aylık Fiyat ve Trend Grafiği")
-ax.set_xlabel("Tarih")
-ax.set_ylabel("Fiyat (TL)")
-ax.grid(True)
-ax.legend()
+# 1. Kapanış Fiyatı
+fig_trend.add_trace(go.Scatter(
+    x=gecmisSecilen.index, 
+    y=gecmisSecilen['Close'], 
+    name='Kapanış (TL)',
+    line=dict(color='#00b4d8', width=2.5)
+))
 
-# 4. Grafiği web sayfasına gömüyoruz
-st.pyplot(fig)
+# 2. SMA 20 (Trend)
+fig_trend.add_trace(go.Scatter(
+    x=gecmisSecilen.index, 
+    y=gecmisSecilen['SMA20'], 
+    name='SMA 20 (Kısa Vade)',
+    line=dict(color='#f77f00', width=1.5)
+))
+
+# 3. SMA 50 (Orta Vade)
+fig_trend.add_trace(go.Scatter(
+    x=gecmisSecilen.index, 
+    y=gecmisSecilen['SMA50'], 
+    name='SMA 50 (Orta Vade)',
+    line=dict(color='#9d4edd', width=1.5)
+))
+
+# 4. Kırmızı Kesik Maliyet Çizgisi
+fig_trend.add_hline(
+    y=secilenMaliyet, 
+    line_dash="dash", 
+    line_color="#e63946", 
+    annotation_text=f"Maliyetim ({secilenMaliyet:.2f} TL)",
+    annotation_position="top left"
+)
+
+fig_trend.update_layout(
+    title=f"📈 {secilen} - Canlı & İnteraktif Trend Grafiği",
+    xaxis_title="Tarih",
+    yaxis_title="Fiyat (TL)",
+    hovermode="x unified", # Fareyi getirdiğin tarihteki tüm değerleri tek kutuda gösterir
+    height=450,
+    margin=dict(t=40, b=20, l=20, r=20)
+)
+
+st.plotly_chart(fig_trend, use_container_width=True)
