@@ -3,10 +3,12 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
+import pandas as pd
+import numpy as np
 import database
 
 # Sayfa Başlığı ve Geniş Ekran Düzeni
-st.set_page_config(page_title="BIST Portföy & Analiz Terminali", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Global Servet & Portföy Terminali", page_icon="🌐", layout="wide")
 
 # --- KULLANICI OTURUM KONTROLÜ (SESSION STATE) ---
 if "kullanici" not in st.session_state:
@@ -14,8 +16,8 @@ if "kullanici" not in st.session_state:
 
 # Giriş yapılmamışsa Giriş / Kayıt / Demo ekranını göster
 if not st.session_state.kullanici:
-    st.title("📈 BIST Portföy & Analiz Terminali")
-    st.write("Borsa İstanbul yatırımlarınızı canlı verilerle takip edin, teknik göstergelerle ve yapay zekayla analiz edin.")
+    st.title("🌐 Global Servet & Portföy Terminali")
+    st.write("Borsa İstanbul, Amerikan Borsaları (NASDAQ/NYSE), Kripto Paralar ve Altın tek ekranda!")
     
     col_auth, col_info = st.columns([1.1, 0.9], gap="large")
     
@@ -56,10 +58,9 @@ if not st.session_state.kullanici:
                 else:
                     basarili, mesaj = database.kullanici_kayit_ol(kayit_email, kayit_sifre, kayit_ad)
                     if basarili:
-                        # Otomatik giriş yaptır
                         _, _, user_data = database.kullanici_giris_yap(kayit_email, kayit_sifre)
                         st.session_state.kullanici = user_data
-                        st.success(f"Tebrikler {kayit_ad}! Hesabınız ve örnek BIST portföyünüz oluşturuldu.")
+                        st.success(f"Tebrikler {kayit_ad}! Hesabınız ve örnek çoklu varlık portföyünüz oluşturuldu.")
                         st.rerun()
                     else:
                         st.error(mesaj)
@@ -74,41 +75,94 @@ if not st.session_state.kullanici:
                     "rol": "demo"
                 }
                 st.session_state.demo_portfoy = {
-                    "AKBNK.IS": {"maliyet": 62.50, "adet": 150},
-                    "ASELS.IS": {"maliyet": 390.00, "adet": 40},
-                    "KCHOL.IS": {"maliyet": 195.00, "adet": 60},
-                    "THYAO.IS": {"maliyet": 265.00, "adet": 50},
-                    "TUPRS.IS": {"maliyet": 360.00, "adet": 30},
+                    "THYAO.IS": {"maliyet": 265.00, "adet": 50.0},
+                    "NVDA": {"maliyet": 115.00, "adet": 15.0},
+                    "BTC-USD": {"maliyet": 62000.00, "adet": 0.08},
+                    "GRAM_ALTIN": {"maliyet": 2850.00, "adet": 10.0},
+                    "AKBNK.IS": {"maliyet": 58.00, "adet": 100.0},
                 }
                 st.rerun()
                 
     with col_info:
-        st.markdown("### 🌟 Terminal Özellikleri")
+        st.markdown("### 🌟 All-in-One Terminal Özellikleri")
         st.markdown("""
-        - ☁️ **Bulut Tabanlı Kişisel Portföy:** Hisselerinizi ve maliyetlerinizi bulutta (Supabase PostgreSQL) güvenle saklayın.
-        - ⚡ **Canlı Borsa İstanbul Verileri:** Yahoo Finance altyapısıyla anlık kâr/zarar ve portföy değeri hesaplama.
-        - 📊 **İleri Seviye Teknik Analiz:** SMA 20, SMA 50 hareketli ortalamalar ve 14 günlük RSI osilatörü.
-        - 🤖 **Google Gemini Yapay Zeka:** Portföy risk analizi ve hisselerinize özel yapay zeka yorumları.
-        - 📱 **Her Yerden Erişim:** Masaüstünden veya telefonunuzdan dilediğiniz an erişim.
+        - 🌐 **Çoklu Varlık Desteği:** BIST, Amerikan Hisseleri (Apple, Nvidia), Kripto Paralar (Bitcoin, Ethereum) ve Gram Altın tek sepette.
+        - 💵 **Otomatik Kur Çevrimi:** USD ve TL varlıklarınız anlık kurlarla otomatik toplanır, toplam servetinizi hem TL hem Dolar görürsünüz.
+        - 🔮 **Makine Öğrenmesi (ML) Fiyat Tahmini:** Akakçe/Cimri tarzı 7 günlük fiyat projeksiyonu ve güven bandı.
+        - 📊 **İleri Seviye Teknik Analiz:** SMA 20, SMA 50, RSI (14) ve MACD (12,26,9) indikatörleri.
+        - 🤖 **Google Gemini Yapay Zeka:** Portföy risk analizi ve varlıklarınıza özel kıdemli analist yorumları.
         """)
         st.info("💡 **İpucu:** Aile üyeleriniz veya arkadaşlarınız kendi hesaplarını açtığında herkes yalnızca kendi portföyünü görür.")
         
     st.stop()
 
+# --- YARDIMCI VERİ & KUR FONKSİYONLARI ---
+
+@st.cache_data(ttl=300)
+def get_usd_try_rate() -> float:
+    """Anlık USD/TRY kurunu çeker."""
+    try:
+        usd = yf.Ticker("USDTRY=X").history(period="2d")
+        if not usd.empty:
+            return float(usd['Close'].iloc[-1])
+    except Exception:
+        pass
+    return 34.50
+
+def varlik_sinifi_belirle(sembol: str):
+    """Sembolün varlık sınıfını, para birimini ve bayrağını döndürür."""
+    s = sembol.upper().strip()
+    if s.endswith(".IS"):
+        return "BIST Hissesi", "TRY", "🇹🇷"
+    elif s == "GRAM_ALTIN" or s.startswith("GC=") or s.startswith("SI="):
+        para = "TRY" if s == "GRAM_ALTIN" else "USD"
+        return "Emtia & Altın", para, "🥇"
+    elif s.endswith("-USD") or s.endswith("-TRY") or s in ["BTC", "ETH", "SOL", "AVAX", "DOGE", "XRP"]:
+        return "Kripto Para", "USD", "🪙"
+    elif "USDTRY" in s or "EURTRY" in s:
+        return "Döviz / Nakit", "TRY", "💵"
+    else:
+        return "ABD Borsası", "USD", "🇺🇸"
+
+def varlik_gecmisi_getir(sembol: str, period="6mo") -> pd.DataFrame:
+    """BIST, ABD, Kripto veya Gram Altın geçmiş verisini çeker."""
+    s = sembol.upper().strip()
+    if s == "GRAM_ALTIN":
+        try:
+            ons = yf.Ticker("GC=F").history(period=period)['Close']
+            usd = yf.Ticker("USDTRY=X").history(period=period)['Close']
+            ons.index = ons.index.date
+            usd.index = usd.index.date
+            df_merged = pd.concat([ons, usd], axis=1, keys=['ons', 'usd']).ffill().dropna()
+            gram_series = (df_merged['ons'] / 31.1034768) * df_merged['usd']
+            df = pd.DataFrame({'Close': gram_series})
+            df.index = pd.to_datetime(df.index)
+            return df
+        except Exception:
+            return pd.DataFrame()
+    else:
+        try:
+            hisse = yf.Ticker(s)
+            df = hisse.history(period=period)
+            return df
+        except Exception:
+            return pd.DataFrame()
+
 # --- GİRİŞ YAPILMIŞ KULLANICI AKIŞI ---
 user = st.session_state.kullanici
 user_email = user["email"]
 is_demo = user.get("rol") == "demo"
+usd_try = get_usd_try_rate()
 
 # Portföy verisini getir
 if is_demo:
     if "demo_portfoy" not in st.session_state:
         st.session_state.demo_portfoy = {
-            "AKBNK.IS": {"maliyet": 62.50, "adet": 150},
-            "ASELS.IS": {"maliyet": 390.00, "adet": 40},
-            "KCHOL.IS": {"maliyet": 195.00, "adet": 60},
-            "THYAO.IS": {"maliyet": 265.00, "adet": 50},
-            "TUPRS.IS": {"maliyet": 360.00, "adet": 30},
+            "THYAO.IS": {"maliyet": 265.00, "adet": 50.0},
+            "NVDA": {"maliyet": 115.00, "adet": 15.0},
+            "BTC-USD": {"maliyet": 62000.00, "adet": 0.08},
+            "GRAM_ALTIN": {"maliyet": 2850.00, "adet": 10.0},
+            "AKBNK.IS": {"maliyet": 58.00, "adet": 100.0},
         }
     portfoy = st.session_state.demo_portfoy
 else:
@@ -117,6 +171,8 @@ else:
 # --- SOL MENÜ (KULLANICI BİLGİSİ & PORTFÖY YÖNETİMİ) ---
 st.sidebar.markdown(f"### 👤 {user.get('ad_soyad', 'Yatırımcı')}")
 st.sidebar.caption(f"📧 `{user_email}`")
+st.sidebar.info(f"💵 **Canlı Kur:** 1 USD = **{usd_try:.2f} TL**")
+
 if is_demo:
     st.sidebar.warning("👀 **Demo Modundasınız**")
 
@@ -126,35 +182,62 @@ if st.sidebar.button("🚪 Çıkış Yap", use_container_width=True):
     st.rerun()
 
 st.sidebar.divider()
-st.sidebar.header("⚙️ Portföy Yönetimi")
+st.sidebar.header("⚙️ Varlık Yönetimi")
 
-# 1. Hisse Ekleme / Güncelleme Formu
-with st.sidebar.form("hisse_ekle_formu"):
-    st.subheader("➕ Hisse Ekle / Güncelle")
-    yeni_sembol = st.text_input("Hisse Sembolü (örn: FROTO veya FROTO.IS)").upper().strip()
-    yeni_maliyet = st.number_input("Alış Maliyeti (TL)", min_value=0.0, step=0.5)
-    yeni_adet = st.number_input("Adet (Lot)", min_value=1, step=1)
+# 1. Çoklu Varlık Ekleme / Güncelleme Formu
+with st.sidebar.form("varlik_ekle_formu"):
+    st.subheader("➕ Varlık Ekle / Güncelle")
+    varlik_turu = st.selectbox(
+        "Varlık Türü:",
+        ["🇹🇷 BIST Hissesi", "🇺🇸 ABD Hissesi (NASDAQ/NYSE)", "🪙 Kripto Para", "🥇 Altın & Emtia"]
+    )
     
-    ekle_butonu = st.form_submit_button("Portföye Kaydet")
+    if "BIST" in varlik_turu:
+        yeni_sembol = st.text_input("Hisse Sembolü (örn: THYAO, FROTO, ASELS)").upper().strip()
+        para_birimi = "TL"
+    elif "ABD" in varlik_turu:
+        yeni_sembol = st.text_input("ABD Sembolü (örn: NVDA, AAPL, TSLA, MSFT)").upper().strip()
+        para_birimi = "$ USD"
+    elif "Kripto" in varlik_turu:
+        yeni_sembol = st.text_input("Kripto Kodu (örn: BTC, ETH, SOL, DOGE)").upper().strip()
+        para_birimi = "$ USD"
+    else:
+        emtia_secim = st.selectbox("Emtia / Maden:", ["Gram Altın (TL)", "Ons Altın ($ GC=F)", "Gümüş ($ SI=F)"])
+        if "Gram Altın" in emtia_secim:
+            yeni_sembol = "GRAM_ALTIN"
+            para_birimi = "TL"
+        elif "Ons Altın" in emtia_secim:
+            yeni_sembol = "GC=F"
+            para_birimi = "$ USD"
+        else:
+            yeni_sembol = "SI=F"
+            para_birimi = "$ USD"
+            
+    yeni_maliyet = st.number_input(f"Alış Maliyeti ({para_birimi})", min_value=0.0, step=0.5, format="%.2f")
+    yeni_adet = st.number_input("Adet / Miktar / Lot", min_value=0.0001, step=1.0, value=1.0, format="%.4f")
+    
+    ekle_butonu = st.form_submit_button("Varlığı Kaydet", type="primary", use_container_width=True)
     if ekle_butonu and yeni_sembol:
-        # Otomatik .IS uzantısı ekle
-        if not yeni_sembol.endswith(".IS") and "." not in yeni_sembol:
+        # Otomatik uzantı tamamlama
+        if "BIST" in varlik_turu and not yeni_sembol.endswith(".IS") and "." not in yeni_sembol:
             yeni_sembol = f"{yeni_sembol}.IS"
+        elif "Kripto" in varlik_turu and not yeni_sembol.endswith("-USD"):
+            yeni_sembol = f"{yeni_sembol}-USD"
             
         if is_demo:
-            st.session_state.demo_portfoy[yeni_sembol] = {"maliyet": yeni_maliyet, "adet": yeni_adet}
+            st.session_state.demo_portfoy[yeni_sembol] = {"maliyet": float(yeni_maliyet), "adet": float(yeni_adet)}
         else:
-            database.kullanici_hisse_ekle_guncelle(user_email, yeni_sembol, yeni_maliyet, yeni_adet)
+            database.kullanici_hisse_ekle_guncelle(user_email, yeni_sembol, float(yeni_maliyet), float(yeni_adet))
             
         st.success(f"{yeni_sembol} başarıyla kaydedildi!")
         st.rerun()
 
-# 2. Hisse Silme Formu
+# 2. Varlık Silme Formu
 if portfoy:
     st.sidebar.divider()
-    st.sidebar.subheader("🗑️ Hisse Sil")
-    silinecek_hisse = st.sidebar.selectbox("Silmek istediğiniz hisse:", list(portfoy.keys()))
-    if st.sidebar.button("Hisseyi Portföyden Çıkar", use_container_width=True):
+    st.sidebar.subheader("🗑️ Varlık Sil")
+    silinecek_hisse = st.sidebar.selectbox("Silmek istediğiniz varlık:", list(portfoy.keys()))
+    if st.sidebar.button("Varlığı Portföyden Çıkar", use_container_width=True):
         if is_demo:
             st.session_state.demo_portfoy.pop(silinecek_hisse, None)
         else:
@@ -176,20 +259,18 @@ with col_btn2:
     if st.button("📥 Örnek Veri", use_container_width=True):
         if is_demo:
             st.session_state.demo_portfoy = {
-                "AKBNK.IS": {"maliyet": 62.50, "adet": 150},
-                "ASELS.IS": {"maliyet": 390.00, "adet": 40},
-                "KCHOL.IS": {"maliyet": 195.00, "adet": 60},
-                "THYAO.IS": {"maliyet": 265.00, "adet": 50},
-                "TUPRS.IS": {"maliyet": 360.00, "adet": 30},
+                "THYAO.IS": {"maliyet": 265.00, "adet": 50.0},
+                "NVDA": {"maliyet": 115.00, "adet": 15.0},
+                "BTC-USD": {"maliyet": 62000.00, "adet": 0.08},
+                "GRAM_ALTIN": {"maliyet": 2850.00, "adet": 10.0},
+                "AKBNK.IS": {"maliyet": 58.00, "adet": 100.0},
             }
         else:
             database.kullanici_ornek_portfoy_yukle(user_email)
         st.rerun()
 
-# 3. Yapay Zeka Anahtarı (Önce güvenli kasadan okur)
+# 3. Yapay Zeka Anahtarı
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
-
-# Kasada anahtar yoksa manuel giriş kutusu göster
 if not gemini_key:
     st.sidebar.divider()
     st.sidebar.subheader("🤖 Yapay Zeka Asistanı")
@@ -203,191 +284,192 @@ else:
     st.sidebar.caption("🤖 Yapay zeka asistanı aktif")
 
 # --- ANA EKRAN BAŞLIĞI VE ÖZET METRİKLER ---
-st.title("📈 BIST Portföy Takip & Analiz Paneli")
-st.write("Canlı borsa verileriyle portföy kâr/zarar ve teknik analiz durumu.")
+st.title("🌐 Global Servet & Portföy Terminali")
+st.write("Borsa İstanbul, Amerikan Borsaları, Kripto Paralar ve Altın yatırımlarınız tek ekranda.")
 
 if not portfoy:
-    st.info("💡 Portföyünüz şu an boş. Sol menüden yeni hisse ekleyebilir veya '📥 Örnek Veri' butonuna tıklayarak hazır hisseleri yükleyebilirsiniz.")
+    st.info("💡 Portföyünüz şu an boş. Sol menüden yeni varlık ekleyebilir veya '📥 Örnek Veri' butonuna tıklayarak örnek karma portföyü yükleyebilirsiniz.")
     st.stop()
 
 # Hesaplama değişkenleri
-toplamMaliyet = 0
-toplamGuncelDeger = 0
-enIyiHisse = ""
+toplamMaliyetTL = 0.0
+toplamGuncelDegerTL = 0.0
+enIyiVarlik = ""
 enYuksekKar = -999999
-enKotuHisse = ""
+enKotuVarlik = ""
 enDusukKar = 999999
 
 tabloVerisi = []
 pastaEtiketler = []
 pastaDegerler = []
+kategoriDegerler = {}
 
-# Portföydeki her hisse için canlı veri çekimi ve kâr hesabı
-with st.spinner("⏳ Canlı borsa verileri yükleniyor..."):
+# Portföydeki her varlık için canlı veri çekimi ve kur dönüşümü
+with st.spinner("⏳ Küresel piyasa verileri ve canlı kurlar yükleniyor..."):
     for sembol, bilgi in portfoy.items():
-        maliyet = bilgi["maliyet"]
-        adet = bilgi["adet"]
-        try:
-            hisse = yf.Ticker(sembol)
-            gecmis = hisse.history(period="6mo")
-            if gecmis.empty:
-                continue
-            guncelFiyat = float(gecmis['Close'].iloc[-1])
-        except Exception:
+        maliyet = float(bilgi["maliyet"])
+        adet = float(bilgi["adet"])
+        kategori, para, ikon = varlik_sinifi_belirle(sembol)
+        
+        gecmis = varlik_gecmisi_getir(sembol, period="6mo")
+        if gecmis.empty:
             continue
             
-        toplamMaliyet += maliyet * adet
-        toplamGuncelDeger += guncelFiyat * adet
-        karDurumu = ((guncelFiyat - maliyet) / maliyet) * 100 if maliyet > 0 else 0.0
+        guncelFiyatYerel = float(gecmis['Close'].iloc[-1])
+        
+        # Para birimi çevrimi
+        if para == "USD":
+            maliyetTL = maliyet * usd_try
+            guncelFiyatTL = guncelFiyatYerel * usd_try
+            fiyatMetni = f"${guncelFiyatYerel:,.2f}"
+            maliyetMetni = f"${maliyet:,.2f}"
+        else:
+            maliyetTL = maliyet
+            guncelFiyatTL = guncelFiyatYerel
+            fiyatMetni = f"{guncelFiyatYerel:,.2f} TL"
+            maliyetMetni = f"{maliyet:,.2f} TL"
+            
+        varlikMaliyetToplami = maliyetTL * adet
+        varlikGuncelToplami = guncelFiyatTL * adet
+        
+        toplamMaliyetTL += varlikMaliyetToplami
+        toplamGuncelDegerTL += varlikGuncelToplami
+        
+        karDurumuYuzde = ((guncelFiyatYerel - maliyet) / maliyet) * 100 if maliyet > 0 else 0.0
+        karDurumuTL = (guncelFiyatTL - maliyetTL) * adet
         
         tabloVerisi.append({
-            "Hisse": sembol,
-            "Adet": adet,
-            "Maliyet (TL)": maliyet,
-            "Güncel Fiyat (TL)": round(guncelFiyat, 2),
-            "Kâr/Zarar (%)": round(karDurumu, 2),
-            "Kâr/Zarar (TL)": round((guncelFiyat - maliyet) * adet, 2)
+            "Varlık": f"{ikon} {sembol}",
+            "Kategori": kategori,
+            "Miktar (Adet)": adet,
+            "Alış Maliyeti": maliyetMetni,
+            "Güncel Fiyat": fiyatMetni,
+            "Toplam Değer (TL)": f"{varlikGuncelToplami:,.2f} TL",
+            "Kâr/Zarar (TL)": f"{karDurumuTL:+,.2f} TL",
+            "Kâr/Zarar (%)": round(karDurumuYuzde, 2)
         })
-        pastaEtiketler.append(sembol)
-        pastaDegerler.append(guncelFiyat * adet)
         
-        if karDurumu > enYuksekKar:
-            enYuksekKar = karDurumu
-            enIyiHisse = sembol
-        if karDurumu < enDusukKar:
-            enDusukKar = karDurumu
-            enKotuHisse = sembol
+        pastaEtiketler.append(f"{ikon} {sembol}")
+        pastaDegerler.append(varlikGuncelToplami)
+        
+        # Varlık sınıfına göre toplama
+        kategoriDegerler[f"{ikon} {kategori}"] = kategoriDegerler.get(f"{ikon} {kategori}", 0.0) + varlikGuncelToplami
+        
+        if karDurumuYuzde > enYuksekKar:
+            enYuksekKar = karDurumuYuzde
+            enIyiVarlik = f"{ikon} {sembol}"
+        if karDurumuYuzde < enDusukKar:
+            enDusukKar = karDurumuYuzde
+            enKotuVarlik = f"{ikon} {sembol}"
 
-toplamKarZararTL = toplamGuncelDeger - toplamMaliyet
-toplamKarZararYuzde = ((toplamGuncelDeger - toplamMaliyet) / toplamMaliyet) * 100 if toplamMaliyet > 0 else 0.0
+toplamKarTL = toplamGuncelDegerTL - toplamMaliyetTL
+toplamKarYuzde = ((toplamGuncelDegerTL - toplamMaliyetTL) / toplamMaliyetTL) * 100 if toplamMaliyetTL > 0 else 0.0
 
-# BIST 100 (XU100) Getirisi Hesaplama
+# BIST 100 (XU100) Getirisi
 try:
     bist_veri = yf.Ticker("XU100.IS").history(period="6mo")
     bist_getiri = ((bist_veri['Close'].iloc[-1] - bist_veri['Close'].iloc[0]) / bist_veri['Close'].iloc[0]) * 100
 except Exception:
     bist_getiri = 0.0
 
-fark = toplamKarZararYuzde - bist_getiri
+fark = toplamKarYuzde - bist_getiri
 
-# 4'lü Özet KPI Kartları
+# 4'lü Özet KPI Kartları (Hem TL Hem USD)
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric(label="Toplam Yatırılan Maliyet", value=f"{toplamMaliyet:,.2f} TL")
+    st.metric(
+        label="Toplam Yatırılan Maliyet",
+        value=f"{toplamMaliyetTL:,.2f} TL",
+        delta=f"≈ ${toplamMaliyetTL / usd_try:,.2f} USD"
+    )
 
 with col2:
-    st.metric(label="Güncel Portföy Değeri", value=f"{toplamGuncelDeger:,.2f} TL")
+    st.metric(
+        label="Toplam Portföy Değeri",
+        value=f"{toplamGuncelDegerTL:,.2f} TL",
+        delta=f"≈ ${toplamGuncelDegerTL / usd_try:,.2f} USD"
+    )
 
 with col3:
     st.metric(
-        label="Toplam Kâr/Zarar",
-        value=f"{toplamKarZararTL:,.2f} TL",
-        delta=f"%{toplamKarZararYuzde:.2f}"
+        label="Toplam Net Kâr/Zarar",
+        value=f"{toplamKarTL:+,.2f} TL",
+        delta=f"%{toplamKarYuzde:+.2f}"
     )
 
 with col4:
     st.metric(
         label="BIST 100 vs Portföy (6 Ay)",
         value=f"BIST: %{bist_getiri:.1f}",
-        delta=f"%{fark:.1f} Fark"
+        delta=f"%{fark:+.1f} Fark"
     )
 
 st.divider()
-st.subheader("📋 Portföy Detayları")
+st.subheader("📋 Küresel Portföy Detayları")
 st.dataframe(tabloVerisi, use_container_width=True)
 
 st.divider()
-st.subheader("🥧 Portföy Varlık Dağılımı")
+st.subheader("🥧 Portföy Varlık & Kategori Dağılımı")
 
-# Modern Donut Grafiği
-fig_pasta = px.pie(
-    names=pastaEtiketler,
-    values=pastaDegerler,
-    hole=0.45,
-    color_discrete_sequence=px.colors.qualitative.Prism
-)
-fig_pasta.update_traces(
-    textposition='inside', 
-    textinfo='percent+label',
-    hovertemplate="<b>%{label}</b><br>Toplam Değer: %{value:,.2f} TL<br>Portföy Payı: %{percent}<extra></extra>"
-)
-fig_pasta.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=380)
-st.plotly_chart(fig_pasta, use_container_width=True)
+tab_pasta1, tab_pasta2 = st.tabs(["🏷️ Varlık Sınıfı Dağılımı (Kategori)", "📌 Tekil Varlık Dağılımı"])
 
-# Şampiyon ve Düşen Hisse Kutuları
-if enIyiHisse and enKotuHisse:
+with tab_pasta1:
+    fig_kat = px.pie(
+        names=list(kategoriDegerler.keys()),
+        values=list(kategoriDegerler.values()),
+        hole=0.45,
+        color_discrete_sequence=px.colors.qualitative.Prism
+    )
+    fig_kat.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="<b>%{label}</b><br>Toplam: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>")
+    fig_kat.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=350)
+    st.plotly_chart(fig_kat, use_container_width=True)
+
+with tab_pasta2:
+    fig_pasta = px.pie(
+        names=pastaEtiketler,
+        values=pastaDegerler,
+        hole=0.45,
+        color_discrete_sequence=px.colors.qualitative.Safe
+    )
+    fig_pasta.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="<b>%{label}</b><br>Toplam: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>")
+    fig_pasta.update_layout(margin=dict(t=10, b=10, l=10, r=10), height=350)
+    st.plotly_chart(fig_pasta, use_container_width=True)
+
+# Şampiyon ve Düşen Kutuları
+if enIyiVarlik and enKotuVarlik:
     col_iyi, col_kotu = st.columns(2)
     with col_iyi:
-        st.success(f"🏆 **En Çok Kazandıran:** {enIyiHisse} (+%{enYuksekKar:.2f})")
+        st.success(f"🏆 **En Çok Kazandıran:** {enIyiVarlik} (%{enYuksekKar:+.2f})")
     with col_kotu:
-        st.error(f"🔻 **En Çok Kaybettiren:** {enKotuHisse} (%{enDusukKar:.2f})")
+        st.error(f"🔻 **En Çok Kaybettiren:** {enKotuVarlik} (%{enDusukKar:+.2f})")
 
 st.divider()
-st.subheader("📊 Hisse Teknik Analiz Grafiği")
+st.subheader("📊 Varlık Analizi & 🔮 Makine Öğrenmesi Fiyat Projeksiyonu")
 
-secilen = st.selectbox("İncelemek istediğiniz hisseyi seçin:", list(portfoy.keys()))
+secilen = st.selectbox("İncelemek istediğiniz varlığı seçin:", list(portfoy.keys()))
 
-secilenHisse = yf.Ticker(secilen)
-gecmisSecilen = secilenHisse.history(period="6mo")
-secilenMaliyet = portfoy[secilen]["maliyet"]
+secilen_kat, secilen_para, secilen_ikon = varlik_sinifi_belirle(secilen)
+gecmisSecilen = varlik_gecmisi_getir(secilen, period="6mo")
+secilenMaliyet = float(portfoy[secilen]["maliyet"])
 
+if gecmisSecilen.empty:
+    st.warning("Seçilen varlık için geçmiş fiyat verisi çekilemedi.")
+    st.stop()
+
+# SMA Göstergeleri
 gecmisSecilen['SMA20'] = gecmisSecilen['Close'].rolling(window=20).mean()
 gecmisSecilen['SMA50'] = gecmisSecilen['Close'].rolling(window=50).mean()
 
-# 14 Günlük RSI Hesabı
+# 14 Günlük RSI
 fark_fiyat = gecmisSecilen['Close'].diff()
 kazanc = fark_fiyat.where(fark_fiyat > 0, 0.0).rolling(window=14).mean()
 kayip = (-fark_fiyat.where(fark_fiyat < 0, 0.0)).rolling(window=14).mean()
 rs = kazanc / kayip
 gecmisSecilen['RSI'] = 100 - (100 / (1 + rs))
+guncel_rsi = float(gecmisSecilen['RSI'].iloc[-1])
 
-guncel_rsi = gecmisSecilen['RSI'].iloc[-1]
-
-# İnteraktif Finans Grafiği (SMA20 + SMA50 + Maliyet)
-fig_trend = go.Figure()
-
-fig_trend.add_trace(go.Scatter(
-    x=gecmisSecilen.index, 
-    y=gecmisSecilen['Close'], 
-    name='Kapanış (TL)',
-    line=dict(color='#00b4d8', width=2.5)
-))
-
-fig_trend.add_trace(go.Scatter(
-    x=gecmisSecilen.index, 
-    y=gecmisSecilen['SMA20'], 
-    name='SMA 20 (Kısa Vade)',
-    line=dict(color='#f77f00', width=1.5)
-))
-
-fig_trend.add_trace(go.Scatter(
-    x=gecmisSecilen.index, 
-    y=gecmisSecilen['SMA50'], 
-    name='SMA 50 (Orta Vade)',
-    line=dict(color='#9d4edd', width=1.5)
-))
-
-fig_trend.add_hline(
-    y=secilenMaliyet, 
-    line_dash="dash", 
-    line_color="#e63946", 
-    annotation_text=f"Maliyetim ({secilenMaliyet:.2f} TL)",
-    annotation_position="top left"
-)
-
-fig_trend.update_layout(
-    title=f"📈 {secilen} - Canlı & İnteraktif Trend Grafiği",
-    xaxis_title="Tarih",
-    yaxis_title="Fiyat (TL)",
-    hovermode="x unified",
-    height=450,
-    margin=dict(t=40, b=20, l=20, r=20)
-)
-st.plotly_chart(fig_trend, use_container_width=True)
-
-# RSI ve MACD Rozetleri ve Göstergeleri
-# MACD (12, 26, 9) Hesabı
+# MACD (12, 26, 9)
 ema12 = gecmisSecilen['Close'].ewm(span=12, adjust=False).mean()
 ema26 = gecmisSecilen['Close'].ewm(span=26, adjust=False).mean()
 gecmisSecilen['MACD'] = ema12 - ema26
@@ -401,6 +483,132 @@ guncel_sma50 = float(gecmisSecilen['SMA50'].iloc[-1])
 
 macd_al = guncel_macd > guncel_signal
 golden_cross = guncel_sma20 > guncel_sma50
+
+# --- 🔮 MAKİNE ÖĞRENMESİ (REGRESYON İLE 7 GÜNLÜK TAHMİN) ---
+gunler = np.arange(len(gecmisSecilen))
+fiyatlar = gecmisSecilen['Close'].values
+
+# Lineer Regresyon modeli (Trend Eğimi)
+p = np.polyfit(gunler, fiyatlar, deg=1)
+trend_modeli = np.poly1d(p)
+tahmin_gecmis = trend_modeli(gunler)
+std_hata = float(np.std(fiyatlar - tahmin_gecmis))
+
+# Gelecek 7 günün indeksleri ve tarihleri
+son_tarih = gecmisSecilen.index[-1]
+fut_indices = np.arange(len(gecmisSecilen) - 1, len(gecmisSecilen) + 7)
+fut_prices = trend_modeli(fut_indices)
+fut_dates = [son_tarih] + list(pd.date_range(start=son_tarih + pd.Timedelta(days=1), periods=7, freq='D'))
+
+tahmin_7gun = float(fut_prices[-1])
+guncel_son_fiyat = float(fiyatlar[-1])
+tahmin_fark_yuzde = ((tahmin_7gun - guncel_son_fiyat) / guncel_son_fiyat) * 100
+gunluk_egim = float(p[0])
+
+# İnteraktif Trend & Projeksiyon Grafiği
+fig_trend = go.Figure()
+
+# 1. Kapanış Fiyatı
+fig_trend.add_trace(go.Scatter(
+    x=gecmisSecilen.index, 
+    y=gecmisSecilen['Close'], 
+    name=f'Kapanış ({secilen_para})',
+    line=dict(color='#00b4d8', width=2.5)
+))
+
+# 2. SMA 20
+fig_trend.add_trace(go.Scatter(
+    x=gecmisSecilen.index, 
+    y=gecmisSecilen['SMA20'], 
+    name='SMA 20 (Kısa Vade)',
+    line=dict(color='#f77f00', width=1.5)
+))
+
+# 3. SMA 50
+fig_trend.add_trace(go.Scatter(
+    x=gecmisSecilen.index, 
+    y=gecmisSecilen['SMA50'], 
+    name='SMA 50 (Orta Vade)',
+    line=dict(color='#9d4edd', width=1.5)
+))
+
+# 4. Maliyet Çizgisi
+fig_trend.add_hline(
+    y=secilenMaliyet, 
+    line_dash="dash", 
+    line_color="#e63946", 
+    annotation_text=f"Maliyetim ({secilenMaliyet:.2f} {secilen_para})",
+    annotation_position="top left"
+)
+
+# 5. 🔮 Gelecek 7 Günlük Regresyon Tahmin Çizgisi
+fig_trend.add_trace(go.Scatter(
+    x=fut_dates, 
+    y=fut_prices, 
+    name='🔮 7 Günlük ML Tahmini',
+    line=dict(color='#c084fc', width=3, dash='dot')
+))
+
+# 6. Tahmin Güven Bandı (Üst)
+fig_trend.add_trace(go.Scatter(
+    x=fut_dates,
+    y=fut_prices + std_hata,
+    name='Tahmin Üst Sınır',
+    line=dict(color='rgba(192, 132, 252, 0)'),
+    showlegend=False
+))
+
+# 7. Tahmin Güven Bandı (Alt)
+fig_trend.add_trace(go.Scatter(
+    x=fut_dates,
+    y=fut_prices - std_hata,
+    name='Güven Aralığı',
+    fill='tonexty',
+    fillcolor='rgba(192, 132, 252, 0.15)',
+    line=dict(color='rgba(192, 132, 252, 0)'),
+    hoverinfo='skip'
+))
+
+fig_trend.update_layout(
+    title=f"📈 {secilen_ikon} {secilen} - Canlı Fiyat & Gelecek 7 Günlük Projeksiyon",
+    xaxis_title="Tarih",
+    yaxis_title=f"Fiyat ({secilen_para})",
+    hovermode="x unified",
+    height=480,
+    margin=dict(t=40, b=20, l=20, r=20)
+)
+st.plotly_chart(fig_trend, use_container_width=True)
+
+# 🔮 Akakçe / Cimri Tarzı Makine Öğrenmesi Tahmin Kartı
+st.markdown("#### 🔮 Makine Öğrenmesi Fiyat Projeksiyonu (Sonraki 7 Gün)")
+col_ml1, col_ml2, col_ml3 = st.columns(3)
+
+with col_ml1:
+    st.metric(
+        label="7 Gün Sonraki Model Hedefi",
+        value=f"{tahmin_7gun:,.2f} {secilen_para}",
+        delta=f"%{tahmin_fark_yuzde:+.2f} Beklenen Yön"
+    )
+
+with col_ml2:
+    st.metric(
+        label="Model Güven Bandı",
+        value=f"±{std_hata:.2f} {secilen_para}",
+        help="Olası dalgalanma payı / Standart hata aralığı"
+    )
+
+with col_ml3:
+    egim_yorum = "Yükseliş Eğilimi 🚀" if gunluk_egim > 0 else "Düzeltme / Düşüş Eğilimi 📉"
+    st.metric(
+        label="Günlük Trend İvmesi (Eğim)",
+        value=f"{gunluk_egim:+.2f} {secilen_para}/Gün",
+        delta=egim_yorum
+    )
+
+if gunluk_egim > 0:
+    st.info(f"💡 **Model Yorumu:** Mevcut regresyon eğimi ve momentum pozitif bölgede. Varlık önümüzdeki 7 günde **{tahmin_7gun:.2f} {secilen_para}** bandına doğru hareket etme eğiliminde.")
+else:
+    st.warning(f"⚠️ **Model Yorumu:** Son dönem fiyat eğiliminde kâr satışı / düzeltme baskısı hakim. Kısa vadede **{tahmin_7gun:.2f} {secilen_para}** seviyelerine doğru dengelenme izlenebilir.")
 
 # 3'lü İndikatör Sinyal Rozetleri
 c_ind1, c_ind2, c_ind3 = st.columns(3)
@@ -430,7 +638,7 @@ fig_rsi = go.Figure()
 fig_rsi.add_trace(go.Scatter(x=gecmisSecilen.index, y=gecmisSecilen['RSI'], name='RSI (14)', line=dict(color='#a855f7', width=2)))
 fig_rsi.add_hline(y=70, line_dash="dash", line_color="#ef4444", annotation_text="Aşırı Alım (70)")
 fig_rsi.add_hline(y=30, line_dash="dash", line_color="#22c55e", annotation_text="Aşırı Satım (30)")
-fig_rsi.update_layout(title="RSI (Göreceli Güç Endeksi) - Son 6 Ay", yaxis_range=[0, 100], height=240, margin=dict(t=30, b=20, l=20, r=20))
+fig_rsi.update_layout(title="RSI (Göreceli Güç Endeksi) - Son 6 Ay", yaxis_range=[0, 100], height=220, margin=dict(t=30, b=20, l=20, r=20))
 st.plotly_chart(fig_rsi, use_container_width=True)
 
 # İnteraktif MACD Grafiği
@@ -457,7 +665,7 @@ fig_macd.add_trace(go.Scatter(
 ))
 fig_macd.update_layout(
     title=f"📊 {secilen} - MACD & Sinyal Kesişim Grafiği",
-    height=260,
+    height=240,
     margin=dict(t=30, b=20, l=20, r=20),
     hovermode="x unified"
 )
@@ -482,54 +690,55 @@ with st.expander(f"🧪 Strateji Testi: {secilen} için MACD Al-Sat Kârlı mıy
             st.metric("MACD Sinyal Stratejisi Getirisi", f"%{getiri_strat:.2f}", delta=f"%{fark_strat:.2f} Strateji Farkı")
         
         if getiri_strat > getiri_bh:
-            st.success("🎯 **Sonuç:** Son 6 ayda MACD kesişimlerini takip etmek hisseyi sürekli elde tutmaktan daha kârlı olmuş!")
+            st.success("🎯 **Sonuç:** Son 6 ayda MACD kesişimlerini takip etmek varlığı sürekli elde tutmaktan daha kârlı olmuş!")
         else:
-            st.info("ℹ️ **Sonuç:** Güçlü trendlerde veya yatay piyasada hissede kalıp beklemek (Buy & Hold) daha yüksek getiri sağlamış.")
+            st.info("ℹ️ **Sonuç:** Güçlü trendlerde veya yatay piyasada varlıkta kalıp beklemek (Buy & Hold) daha yüksek getiri sağlamış.")
     except Exception:
         st.caption("Simülasyon için yeterli geçmiş veri hesaplanamadı.")
 
 st.divider()
 st.subheader("🤖 Yapay Zeka Portföy Analisti (Google Gemini)")
-st.write("Büyük dil modeli portföyünüzün risk dengesini ve seçili hissenizi canlı analiz etsin.")
+st.write("Büyük dil modeli çoklu varlık portföyünüzün risk dengesini ve seçili varlığı canlı analiz etsin.")
 
-if st.button("🧠 Portföyümü ve Hisselerimi Yorumla"):
+if st.button("🧠 Portföyümü ve Varlığımı Yorumla"):
     if not gemini_key:
         st.warning("⚠️ Lütfen sol menüden ücretsiz Gemini API anahtarınızı girin! (aistudio.google.com adresinden 10 saniyede alabilirsiniz)")
     else:
-        with st.spinner("🤖 Gemini portföyünüzü ve teknik indikatörleri inceliyor..."):
+        with st.spinner("🤖 Gemini küresel portföyünüzü ve teknik indikatörleri inceliyor..."):
             try:
                 from google import genai
                 client = genai.Client(api_key=gemini_key)
                 
                 prompt = f"""
-Sen Borsa İstanbul (BIST) konusunda uzman kıdemli bir portföy yöneticisi ve teknik analistsin.
-Aşağıda yatırımcının canlı portföy ve piyasa verileri yer alıyor:
+Sen Borsa İstanbul, Amerikan Borsası (Wall Street), Kripto Paralar ve Emtialar konusunda uzman kıdemli bir küresel portföy yöneticisi ve teknik analistsin.
+Aşağıda yatırımcının canlı çoklu varlık portföyü ve piyasa verileri yer alıyor:
 
 - Yatırımcı: {user.get('ad_soyad', 'Yatırımcı')}
-- Toplam Portföy Değeri: {toplamGuncelDeger:.2f} TL
-- Toplam Maliyet: {toplamMaliyet:.2f} TL
-- Toplam Net Kâr/Zarar: {toplamKarZararTL:.2f} TL (%{toplamKarZararYuzde:.2f})
-- BIST 100 Karşılaştırması: Portföy BIST 100 endeksine göre %{fark:.1f} fark yaptı.
-- Portföydeki Hisseler: {list(portfoy.keys())}
-- En Çok Kazandıran: {enIyiHisse} (+%{enYuksekKar:.2f})
-- En Çok Kaybettiren: {enKotuHisse} (%{enDusukKar:.2f})
+- Toplam Portföy Değeri: {toplamGuncelDegerTL:,.2f} TL (≈ ${toplamGuncelDegerTL / usd_try:,.2f} USD)
+- Toplam Maliyet: {toplamMaliyetTL:,.2f} TL (≈ ${toplamMaliyetTL / usd_try:,.2f} USD)
+- Toplam Net Kâr/Zarar: {toplamKarTL:+,.2f} TL (%{toplamKarYuzde:+.2f})
+- Anlık Dolar Kuru: 1 USD = {usd_try:.2f} TL
+- Portföy Varlıkları: {list(portfoy.keys())}
+- Varlık Sınıfı Dağılımı: {kategoriDegerler}
+- En Çok Kazandıran: {enIyiVarlik} (%{enYuksekKar:+.2f})
+- En Çok Kaybettiren: {enKotuVarlik} (%{enDusukKar:+.2f})
 
-İncelenen Seçili Hisse: {secilen}
-- Güncel Fiyat: {gecmisSecilen['Close'].iloc[-1]:.2f} TL (Maliyet: {secilenMaliyet:.2f} TL)
+İncelenen Seçili Varlık: {secilen_ikon} {secilen} ({secilen_kat})
+- Güncel Fiyat: {guncel_son_fiyat:,.2f} {secilen_para} (Alış Maliyeti: {secilenMaliyet:,.2f} {secilen_para})
 - 14 Günlük RSI: {guncel_rsi:.1f}
-- SMA 20 (Kısa Vade Trend): {guncel_sma20:.2f} TL
-- SMA 50 (Orta Vade Trend): {guncel_sma50:.2f} TL
-- MACD Durumu: {guncel_macd:.2f} (Sinyal Çizgisi: {guncel_signal:.2f} | {'🟢 Boğa Alım Bölgesi' if macd_al else '🔴 Ayı Satım Baskısı'})
+- SMA 20: {guncel_sma20:,.2f} {secilen_para}
+- SMA 50: {guncel_sma50:,.2f} {secilen_para}
+- MACD Durumu: {guncel_macd:.2f} (Sinyal: {guncel_signal:.2f} | {'🟢 Boğa Alım Bölgesi' if macd_al else '🔴 Ayı Satım Baskısı'})
 - Trend Durumu: {'🏆 Altın Kesişim (Golden Cross - Yükseliş Trendi)' if golden_cross else '💀 SMA20 < SMA50 (Düşüş Eğilimi)'}
+- Makine Öğrenmesi 7 Günlük Model Hedefi: {tahmin_7gun:,.2f} {secilen_para} (%{tahmin_fark_yuzde:+.2f} Beklenen Yön, Eğim: {gunluk_egim:+.2f})
 
 Lütfen şu 3 başlık altında net, profesyonel, samimi ve Türkçe bir analiz sun:
-1. 📊 **Portföy Sağlık & Risk Değerlendirmesi:** (Çeşitlendirme, kâr/zarar dengesi ve BIST100'e göre durumu)
-2. 🔍 **{secilen} Teknik Analiz Yorumu:** (Fiyatın SMA20 ve SMA50'ye göre konumu, RSI ne söylüyor?)
-3. 💡 **Stratejik Öneriler:** (Kısa ve orta vadede nelere dikkat edilmeli?)
+1. 📊 **Küresel Portföy Sağlık & Risk Değerlendirmesi:** (BIST, ABD, Kripto ve Altın çeşitlendirmesi dengeli mi? Dolar/TL riskine karşı nasıl konumlanmış?)
+2. 🔍 **{secilen} Teknik & Tahmin Analizi:** (RSI, MACD ve Regresyon tahmin modeli ne söylüyor?)
+3. 💡 **Stratejik Öneriler:** (Kısa ve orta vadede varlık dağılımında nelere dikkat edilmeli?)
 
 (Yatırım tavsiyesi olmadığını belirten kısa bir not ekle).
 """
-                # Hesaba tanımlı uygun modelleri dinamik olarak alıyoruz
                 modeller = []
                 try:
                     for m in client.models.list():

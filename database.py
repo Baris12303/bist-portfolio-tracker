@@ -78,22 +78,34 @@ def kullanici_portfoyu_getir(user_email: str) -> dict:
     for row in res.data:
         portfoy_dict[row["sembol"]] = {
             "maliyet": float(row["maliyet"]),
-            "adet": int(row["adet"])
+            "adet": float(row["adet"])
         }
     return portfoy_dict
 
-def kullanici_hisse_ekle_guncelle(user_email: str, sembol: str, maliyet: float, adet: int):
-    """Kullanıcının portföyüne hisse ekler veya günceller."""
+def kullanici_hisse_ekle_guncelle(user_email: str, sembol: str, maliyet: float, adet: float):
+    """Kullanıcının portföyüne hisse/varlık ekler veya günceller."""
     sb = get_supabase()
     if not sb or not user_email:
         return
     
-    sb.table("portfoy").upsert({
-        "user_email": user_email.lower().strip(),
-        "sembol": sembol.upper().strip(),
-        "maliyet": maliyet,
-        "adet": adet
-    }, on_conflict="user_email,sembol").execute()
+    try:
+        sb.table("portfoy").upsert({
+            "user_email": user_email.lower().strip(),
+            "sembol": sembol.upper().strip(),
+            "maliyet": maliyet,
+            "adet": adet
+        }, on_conflict="user_email,sembol").execute()
+    except Exception as e:
+        # Veritabanında adet integer ise ve kesirli değer geldiyse güvenli fallback
+        if "invalid input syntax for type integer" in str(e):
+            sb.table("portfoy").upsert({
+                "user_email": user_email.lower().strip(),
+                "sembol": sembol.upper().strip(),
+                "maliyet": maliyet,
+                "adet": int(adet) if adet >= 1 else 1
+            }, on_conflict="user_email,sembol").execute()
+        else:
+            raise e
 
 def kullanici_hisse_sil(user_email: str, sembol: str):
     """Kullanıcının portföyünden seçili hisseyi siler."""
@@ -112,15 +124,13 @@ def kullanici_portfoyu_sifirla(user_email: str):
     sb.table("portfoy").delete().eq("user_email", user_email.lower().strip()).execute()
 
 def kullanici_ornek_portfoy_yukle(user_email: str):
-    """Kullanıcıya örnek demo portföyü yükler."""
+    """Kullanıcıya örnek küresel karma demo portföyü yükler (BIST, ABD, Kripto, Altın)."""
     demo = {
-        "AKBNK.IS": (62.50, 150),
-        "ASELS.IS": (390.00, 40),
-        "KCHOL.IS": (195.00, 60),
-        "MGROS.IS": (480.00, 25),
-        "SAHOL.IS": (91.00, 100),
         "THYAO.IS": (265.00, 50),
-        "TUPRS.IS": (360.00, 30),
+        "NVDA": (115.00, 15),
+        "BTC-USD": (62000.00, 1),
+        "GRAM_ALTIN": (2850.00, 10),
+        "AKBNK.IS": (58.00, 100),
     }
     for sembol, (maliyet, adet) in demo.items():
         kullanici_hisse_ekle_guncelle(user_email, sembol, maliyet, adet)
