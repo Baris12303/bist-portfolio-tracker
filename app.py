@@ -547,7 +547,8 @@ fig_trend.add_trace(go.Scatter(
     x=fut_dates, 
     y=fut_prices, 
     name='🔮 7 Günlük ML Tahmini',
-    line=dict(color='#c084fc', width=3, dash='dash')
+    mode='lines',
+    line=dict(color='#c084fc', width=2.5, dash='dash')
 ))
 
 # 6. Tahmin Güven Bandı (Üst)
@@ -555,8 +556,10 @@ fig_trend.add_trace(go.Scatter(
     x=fut_dates,
     y=fut_prices + std_hata,
     name='Tahmin Üst Sınır',
-    line=dict(color='rgba(192, 132, 252, 0)'),
-    showlegend=False
+    mode='lines',
+    line=dict(color='rgba(0,0,0,0)', width=0),
+    showlegend=False,
+    hoverinfo='skip'
 ))
 
 # 7. Tahmin Güven Bandı (Alt)
@@ -564,9 +567,10 @@ fig_trend.add_trace(go.Scatter(
     x=fut_dates,
     y=fut_prices - std_hata,
     name='Güven Aralığı',
+    mode='lines',
     fill='tonexty',
     fillcolor='rgba(192, 132, 252, 0.15)',
-    line=dict(color='rgba(192, 132, 252, 0)'),
+    line=dict(color='rgba(0,0,0,0)', width=0),
     hoverinfo='skip'
 ))
 
