@@ -126,11 +126,12 @@ def kullanici_portfoyu_sifirla(user_email: str):
 def kullanici_ornek_portfoy_yukle(user_email: str):
     """Kullanıcıya örnek küresel karma demo portföyü yükler (BIST, ABD, Kripto, Altın)."""
     demo = {
-        "THYAO.IS": (265.00, 50),
-        "NVDA": (115.00, 15),
-        "BTC-USD": (62000.00, 1),
-        "GRAM_ALTIN": (2850.00, 10),
-        "AKBNK.IS": (58.00, 100),
+        "THYAO.IS": (270.00, 50.0),
+        "TUPRS.IS": (165.00, 100.0),
+        "AKBNK.IS": (58.00, 300.0),
+        "NVDA": (115.00, 12.0),
+        "GRAM_ALTIN": (2900.00, 16.0),
+        "BTC-USD": (62000.00, 0.02),
     }
     for sembol, (maliyet, adet) in demo.items():
         kullanici_hisse_ekle_guncelle(user_email, sembol, maliyet, adet)

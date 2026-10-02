@@ -252,11 +252,12 @@ if not st.session_state.kullanici:
                     "rol": "demo"
                 }
                 st.session_state.demo_portfoy = {
-                    "THYAO.IS": {"maliyet": 265.00, "adet": 50.0},
-                    "NVDA": {"maliyet": 115.00, "adet": 15.0},
-                    "BTC-USD": {"maliyet": 62000.00, "adet": 0.08},
-                    "GRAM_ALTIN": {"maliyet": 2850.00, "adet": 10.0},
-                    "AKBNK.IS": {"maliyet": 58.00, "adet": 100.0},
+                    "THYAO.IS": {"maliyet": 270.00, "adet": 50.0},
+                    "TUPRS.IS": {"maliyet": 165.00, "adet": 100.0},
+                    "AKBNK.IS": {"maliyet": 58.00, "adet": 300.0},
+                    "NVDA": {"maliyet": 115.00, "adet": 12.0},
+                    "GRAM_ALTIN": {"maliyet": 2900.00, "adet": 16.0},
+                    "BTC-USD": {"maliyet": 62000.00, "adet": 0.02},
                 }
                 st.rerun()
                 
@@ -469,11 +470,12 @@ usd_try = get_usd_try_rate()
 if is_demo:
     if "demo_portfoy" not in st.session_state:
         st.session_state.demo_portfoy = {
-            "THYAO.IS": {"maliyet": 265.00, "adet": 50.0},
-            "NVDA": {"maliyet": 115.00, "adet": 15.0},
-            "BTC-USD": {"maliyet": 62000.00, "adet": 0.08},
-            "GRAM_ALTIN": {"maliyet": 2850.00, "adet": 10.0},
-            "AKBNK.IS": {"maliyet": 58.00, "adet": 100.0},
+            "THYAO.IS": {"maliyet": 270.00, "adet": 50.0},
+            "TUPRS.IS": {"maliyet": 165.00, "adet": 100.0},
+            "AKBNK.IS": {"maliyet": 58.00, "adet": 300.0},
+            "NVDA": {"maliyet": 115.00, "adet": 12.0},
+            "GRAM_ALTIN": {"maliyet": 2900.00, "adet": 16.0},
+            "BTC-USD": {"maliyet": 62000.00, "adet": 0.02},
         }
     portfoy = st.session_state.demo_portfoy
 else:
@@ -574,11 +576,12 @@ with col_btn2:
     if st.button("Örnek Portföy", use_container_width=True):
         if is_demo:
             st.session_state.demo_portfoy = {
-                "THYAO.IS": {"maliyet": 265.00, "adet": 50.0},
-                "NVDA": {"maliyet": 115.00, "adet": 15.0},
-                "BTC-USD": {"maliyet": 62000.00, "adet": 0.08},
-                "GRAM_ALTIN": {"maliyet": 2850.00, "adet": 10.0},
-                "AKBNK.IS": {"maliyet": 58.00, "adet": 100.0},
+                "THYAO.IS": {"maliyet": 270.00, "adet": 50.0},
+                "TUPRS.IS": {"maliyet": 165.00, "adet": 100.0},
+                "AKBNK.IS": {"maliyet": 58.00, "adet": 300.0},
+                "NVDA": {"maliyet": 115.00, "adet": 12.0},
+                "GRAM_ALTIN": {"maliyet": 2900.00, "adet": 16.0},
+                "BTC-USD": {"maliyet": 62000.00, "adet": 0.02},
             }
         else:
             database.kullanici_ornek_portfoy_yukle(user_email)
@@ -628,6 +631,7 @@ with tab_portfoy:
         pastaEtiketler = []
         pastaDegerler = []
         kategoriDegerler = {}
+        portfoy_fiyatlari_tl = {}
 
         with st.spinner("Piyasa verileri konsolide ediliyor..."):
             for sembol, bilgi in portfoy.items():
@@ -652,6 +656,7 @@ with tab_portfoy:
                     fiyatMetni = f"{guncelFiyatYerel:,.2f} TL"
                     maliyetMetni = f"{maliyet:,.2f} TL"
                     
+                portfoy_fiyatlari_tl[sembol] = (guncelFiyatTL, para)
                 varlikMaliyetToplami = maliyetTL * adet
                 varlikGuncelToplami = guncelFiyatTL * adet
                 
@@ -739,16 +744,11 @@ with tab_portfoy:
                 div_rate = fund.get("dividendRate")
                 div_yield = fund.get("dividendYield")
                 
-                fiyat_tl = 0.0
-                p_para = "TL"
-                try:
-                    df_h = varlik_gecmisi_getir(sembol, period="5d")
-                    if not df_h.empty:
-                        son_p = float(df_h['Close'].iloc[-1])
-                        _, p_para, _ = varlik_sinifi_belirle(sembol)
-                        fiyat_tl = son_p * usd_try if p_para == "USD" else son_p
-                except Exception:
-                    fiyat_tl = float(veri.get("maliyet", 0.0))
+                if sembol in portfoy_fiyatlari_tl:
+                    fiyat_tl, p_para = portfoy_fiyatlari_tl[sembol]
+                else:
+                    _, p_para, _ = varlik_sinifi_belirle(sembol)
+                    fiyat_tl = float(veri.get("maliyet", 0.0)) * (usd_try if p_para == "USD" else 1.0)
 
                 # Detay A: dividendRate varsa doğrudan hisse başına net nakit ile hesapla
                 hisse_yillik = 0.0
@@ -1121,13 +1121,21 @@ with tab_kesif:
 
     aktif_kesif_sembol = serbest_arama if serbest_arama else secilen_hizli
 
-    # Detay C: BIST Hisselerinde Otomatik .IS Algılama
-    if serbest_arama and "." not in serbest_arama and "-" not in serbest_arama and len(serbest_arama) >= 3:
-        test_df = varlik_gecmisi_getir(serbest_arama, period="5d")
-        if test_df.empty:
-            test_bist = varlik_gecmisi_getir(serbest_arama + ".IS", period="5d")
-            if not test_bist.empty:
-                aktif_kesif_sembol = serbest_arama + ".IS"
+    # Detay C: BIST (.IS), Kripto (-USD) ve Altın Sembol Otomasyonu
+    if serbest_arama:
+        s_temiz = serbest_arama.replace(" ", "").replace("_", "")
+        if s_temiz in ["ALTIN", "GRAMALTIN", "GA"]:
+            aktif_kesif_sembol = "GRAM_ALTIN"
+        elif "." not in serbest_arama and "-" not in serbest_arama and len(serbest_arama) >= 2:
+            test_df = varlik_gecmisi_getir(serbest_arama, period="5d")
+            if test_df.empty:
+                test_bist = varlik_gecmisi_getir(serbest_arama + ".IS", period="5d")
+                if not test_bist.empty:
+                    aktif_kesif_sembol = serbest_arama + ".IS"
+                else:
+                    test_kripto = varlik_gecmisi_getir(serbest_arama + "-USD", period="5d")
+                    if not test_kripto.empty:
+                        aktif_kesif_sembol = serbest_arama + "-USD"
 
     st.divider()
 
