@@ -23,44 +23,91 @@ st.markdown("""
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Üst Sekmeler: Kırmızı Çizgiyi Kaldır & Yumuşak Buzlu Cam Hap Tasarımı */
-div[data-baseweb="tab-highlight"] {
-    display: none !important;
-}
+/* Üst Sekmeler: Bağımsız, Yumuşak Köşeli ve Ferah Kart Tasarımı */
+.react-aria-SelectionIndicator,
+[data-testid="stTab"] .react-aria-SelectionIndicator,
+.stTabs [data-testid="stTab"] .react-aria-SelectionIndicator,
+[data-baseweb="tab-highlight"],
+div[data-baseweb="tab-highlight"],
+[data-baseweb="tab-border"],
 div[data-baseweb="tab-border"] {
     display: none !important;
-}
-.stTabs [data-baseweb="tab-list"] {
-    gap: 6px;
-    background-color: rgba(255, 255, 255, 0.02) !important;
-    padding: 5px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-}
-.stTabs [data-baseweb="tab"] {
-    height: 40px;
-    border-radius: 8px;
-    padding: 0px 20px;
-    font-weight: 500;
-    font-size: 13.5px;
-    letter-spacing: 0.01em;
-    color: #64748b;
+    visibility: hidden !important;
+    height: 0px !important;
+    width: 0px !important;
+    opacity: 0 !important;
     background: transparent !important;
-    border: 1px solid transparent !important;
-    box-shadow: none !important;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    background-color: transparent !important;
+    border: none !important;
 }
+
+.stTabs [role="tablist"]::after,
+[data-testid="stTabs"] div[role="tablist"]::after,
+.stTabs div[role="tablist"]::after {
+    display: none !important;
+    content: none !important;
+    height: 0px !important;
+    border: none !important;
+    background: transparent !important;
+}
+
+.stTabs [role="tablist"],
+.stTabs [data-baseweb="tab-list"],
+[data-testid="stTabs"] [role="tablist"] {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    border-bottom: none !important;
+    box-shadow: none !important;
+    gap: 12px !important;
+    padding: 8px 0px 16px 0px !important;
+}
+
+.stTabs [data-testid="stTab"],
+.stTabs [role="tab"],
+.stTabs [data-baseweb="tab"] {
+    height: auto !important;
+    min-height: 48px !important;
+    padding: 12px 26px !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.02) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    color: #64748b !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    letter-spacing: 0.015em !important;
+    box-shadow: none !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.stTabs [data-testid="stTab"]:hover,
+.stTabs [role="tab"]:hover,
 .stTabs [data-baseweb="tab"]:hover {
     color: #94a3b8 !important;
-    background-color: rgba(255, 255, 255, 0.025) !important;
+    background: rgba(255, 255, 255, 0.045) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
 }
+
+.stTabs [data-testid="stTab"][data-selected="true"],
+.stTabs [data-testid="stTab"][aria-selected="true"],
+.stTabs [data-testid="stTab"][data-selected],
+.stTabs [role="tab"][aria-selected="true"],
 .stTabs [aria-selected="true"] {
-    background: rgba(255, 255, 255, 0.06) !important;
+    background: rgba(255, 255, 255, 0.07) !important;
     color: #f8fafc !important;
-    border: 1px solid rgba(255, 255, 255, 0.09) !important;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25) !important;
-    border-radius: 8px !important;
+    font-weight: 600 !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35) !important;
+    border-radius: 12px !important;
+}
+
+.stTabs [data-testid="stTab"] p,
+.stTabs [data-testid="stTab"] span {
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* Lüks Metrik Kartları */
@@ -554,13 +601,13 @@ with tab_portfoy:
         # 4'lü Üst KPI Kartları
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric(label="Toplam Yatırılan Maliyet", value=f"{toplamMaliyetTL:,.2f} TL", delta=f"${toplamMaliyetTL / usd_try:,.2f} USD")
+            st.metric(label="Toplam Yatırılan Maliyet", value=f"{toplamMaliyetTL:,.2f} TL", delta=f"${toplamMaliyetTL / usd_try:,.2f} USD", delta_color="off")
         with col2:
-            st.metric(label="Konsolide Portföy Değeri", value=f"{toplamGuncelDegerTL:,.2f} TL", delta=f"${toplamGuncelDegerTL / usd_try:,.2f} USD")
+            st.metric(label="Konsolide Portföy Değeri", value=f"{toplamGuncelDegerTL:,.2f} TL", delta=f"${toplamGuncelDegerTL / usd_try:,.2f} USD", delta_color="off")
         with col3:
-            st.metric(label="Toplam Net Getiri", value=f"{toplamKarTL:+,.2f} TL", delta=f"%{toplamKarYuzde:+.2f}")
+            st.metric(label="Toplam Net Getiri", value=f"{toplamKarTL:+,.2f} TL", delta=f"{toplamKarYuzde:+.2f}%")
         with col4:
-            st.metric(label="BIST 100 Karşılaştırması", value=f"Endeks: %{bist_getiri:.1f}", delta=f"%{fark:+.1f} Göreceli Fark")
+            st.metric(label="BIST 100 Karşılaştırması", value=f"Endeks: %{bist_getiri:.1f}", delta=f"{fark:+.1f}% Göreceli Fark")
 
         st.divider()
         st.dataframe(tabloVerisi, use_container_width=True)
@@ -670,7 +717,7 @@ with tab_portfoy:
             # Akakçe/Cimri usulü Projeksiyon Kartları
             col_ml1, col_ml2, col_ml3 = st.columns(3)
             with col_ml1:
-                st.metric(label="7 Günlük Model Hedefi", value=f"{tahmin_7gun:,.2f} {secilen_para}", delta=f"%{tahmin_fark_yuzde:+.2f}")
+                st.metric(label="7 Günlük Model Hedefi", value=f"{tahmin_7gun:,.2f} {secilen_para}", delta=f"{tahmin_fark_yuzde:+.2f}%")
             with col_ml2:
                 st.metric(label="Model Güven Aralığı", value=f"±{std_hata:.2f} {secilen_para}")
             with col_ml3:
@@ -711,7 +758,7 @@ with tab_portfoy:
                         st.metric("Alıp Bekleme Getirisi", f"%{getiri_bh:.2f}")
                     with col_sim2:
                         fark_strat = getiri_strat - getiri_bh
-                        st.metric("MACD Sinyal Stratejisi", f"%{getiri_strat:.2f}", delta=f"%{fark_strat:.2f}")
+                        st.metric("MACD Sinyal Stratejisi", f"%{getiri_strat:.2f}", delta=f"{fark_strat:+.2f}%")
                 except Exception:
                     st.caption("Geçmiş veri hesaplanamadı.")
 
@@ -817,7 +864,7 @@ with tab_kesif:
             st.metric(
                 label=f"Piyasa Fiyatı ({k_para})",
                 value=f"{guncel_kesif_fiyat:,.2f} {k_para}",
-                delta=f"%{gunluk_degisim_yuzde:+.2f} (24s)"
+                delta=f"{gunluk_degisim_yuzde:+.2f}% (24s)"
             )
 
         # 5'li Finansal Bilanço & Değerleme Çarpanları
