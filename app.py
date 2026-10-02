@@ -23,35 +23,44 @@ st.markdown("""
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Üst Sekmeler: İpeksi Geçiş ve Minimalist Pill Tasarımı */
+/* Üst Sekmeler: Kırmızı Çizgiyi Kaldır & Yumuşak Buzlu Cam Hap Tasarımı */
+div[data-baseweb="tab-highlight"] {
+    display: none !important;
+}
+div[data-baseweb="tab-border"] {
+    display: none !important;
+}
 .stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    background-color: rgba(255, 255, 255, 0.02);
-    padding: 6px;
-    border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+    gap: 6px;
+    background-color: rgba(255, 255, 255, 0.02) !important;
+    padding: 5px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
 }
 .stTabs [data-baseweb="tab"] {
-    height: 46px;
-    border-radius: 9px;
-    padding: 0px 22px;
+    height: 40px;
+    border-radius: 8px;
+    padding: 0px 20px;
     font-weight: 500;
-    font-size: 14px;
-    letter-spacing: 0.02em;
+    font-size: 13.5px;
+    letter-spacing: 0.01em;
     color: #64748b;
-    border: 1px solid transparent;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    box-shadow: none !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .stTabs [data-baseweb="tab"]:hover {
-    color: #cbd5e1;
-    background-color: rgba(255, 255, 255, 0.03);
+    color: #94a3b8 !important;
+    background-color: rgba(255, 255, 255, 0.025) !important;
 }
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
     color: #f8fafc !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25) !important;
+    border-radius: 8px !important;
 }
 
 /* Lüks Metrik Kartları */
@@ -274,6 +283,45 @@ def get_live_news(query: str, count: int = 4):
         return news_list
     except Exception:
         return []
+
+@st.cache_data(ttl=1800)
+def get_company_fundamentals(symbol: str) -> dict:
+    """Şirket temel analiz çarpanlarını çeker ve 30 dk önbelleğe alır."""
+    if symbol == "GRAM_ALTIN":
+        return {}
+    try:
+        t = yf.Ticker(symbol)
+        info = t.info if hasattr(t, 'info') and isinstance(t.info, dict) else {}
+        fi = getattr(t, 'fast_info', None)
+        
+        market_cap = info.get("marketCap")
+        if not market_cap and fi:
+            market_cap = getattr(fi, 'market_cap', None) or (fi.get('marketCap') if hasattr(fi, 'get') else None)
+            
+        pe = info.get("trailingPE") or info.get("forwardPE")
+        pb = info.get("priceToBook")
+        div_y = info.get("dividendYield") or info.get("trailingAnnualDividendYield")
+        
+        h52 = info.get("fiftyTwoWeekHigh")
+        l52 = info.get("fiftyTwoWeekLow")
+        if not h52 and fi:
+            h52 = getattr(fi, 'year_high', None) or (fi.get('yearHigh') if hasattr(fi, 'get') else None)
+        if not l52 and fi:
+            l52 = getattr(fi, 'year_low', None) or (fi.get('yearLow') if hasattr(fi, 'get') else None)
+            
+        return {
+            "longName": info.get("longName", symbol),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "marketCap": market_cap,
+            "trailingPE": pe,
+            "priceToBook": pb,
+            "dividendYield": div_y,
+            "fiftyTwoWeekHigh": h52,
+            "fiftyTwoWeekLow": l52,
+        }
+    except Exception:
+        return {}
 
 # --- GİRİŞ YAPILMIŞ KULLANICI AKIŞI ---
 user = st.session_state.kullanici
@@ -748,14 +796,7 @@ with tab_kesif:
     with st.spinner(f"Veriler aktarılıyor: {aktif_kesif_sembol}..."):
         k_kat, k_para, k_rozet = varlik_sinifi_belirle(aktif_kesif_sembol)
         k_gecmis = varlik_gecmisi_getir(aktif_kesif_sembol, period="1y")
-        
-        k_info = {}
-        try:
-            if aktif_kesif_sembol != "GRAM_ALTIN":
-                t_obj = yf.Ticker(aktif_kesif_sembol)
-                k_info = t_obj.info if hasattr(t_obj, 'info') else {}
-        except Exception:
-            k_info = {}
+        k_info = get_company_fundamentals(aktif_kesif_sembol)
 
     if k_gecmis.empty:
         st.error(f"'{aktif_kesif_sembol}' için veri bulunamadı. Lütfen sembol kodunu kontrol edin.")
@@ -781,21 +822,34 @@ with tab_kesif:
 
         # 5'li Finansal Bilanço & Değerleme Çarpanları
         m_cap = k_info.get("marketCap")
-        m_cap_str = f"{m_cap / 1e9:,.2f} Milyar {k_para}" if m_cap else "—"
-        
+        if m_cap and not pd.isna(m_cap) and m_cap > 0:
+            m_cap_str = f"{m_cap / 1e9:,.2f} Milyar {k_para}"
+        else:
+            m_cap_str = "—"
+            
         pe_ratio = k_info.get("trailingPE")
-        pe_str = f"{pe_ratio:.2f}" if pe_ratio else "—"
+        pe_str = f"{pe_ratio:.2f}" if (pe_ratio and not pd.isna(pe_ratio)) else "—"
         
         pb_ratio = k_info.get("priceToBook")
-        pb_str = f"{pb_ratio:.2f}" if pb_ratio else "—"
+        pb_str = f"{pb_ratio:.2f}" if (pb_ratio and not pd.isna(pb_ratio)) else "—"
         
         div_yield = k_info.get("dividendYield")
-        div_str = f"%{div_yield * 100:.2f}" if div_yield else "%0.00"
-        
+        if div_yield and not pd.isna(div_yield) and div_yield > 0:
+            div_pct = div_yield * 100 if div_yield < 1 else div_yield
+            div_str = f"%{div_pct:.2f}"
+        else:
+            div_str = "%0.00"
+            
+        # 52 Haftalık Zirve / Dip Garantisi (Geçmiş tablodan matematiksel hesaplama yedeği)
         h_52 = k_info.get("fiftyTwoWeekHigh")
         l_52 = k_info.get("fiftyTwoWeekLow")
-        h52_str = f"{h_52:.2f} {k_para}" if h_52 else "—"
-        l52_str = f"{l_52:.2f} {k_para}" if l_52 else "—"
+        if (not h_52 or pd.isna(h_52)) and not k_gecmis.empty:
+            h_52 = float(k_gecmis['Close'].max())
+        if (not l_52 or pd.isna(l_52)) and not k_gecmis.empty:
+            l_52 = float(k_gecmis['Close'].min())
+            
+        h52_str = f"{h_52:.2f} {k_para}" if (h_52 and not pd.isna(h_52)) else "—"
+        l52_str = f"{l_52:.2f} {k_para}" if (l_52 and not pd.isna(l_52)) else "—"
 
         st.markdown("##### Temel Analiz & Bilanço Göstergeleri")
         c_val1, c_val2, c_val3, c_val4, c_val5 = st.columns(5)
