@@ -821,7 +821,7 @@ else:
 
 
 # ==============================================================================
-# 🏛️ ANA EKRAN: 2 BÜYÜK AMİRAL SEKME (PORTFÖY & PİYASA KEŞİF)
+# ANA EKRAN: 2 BÜYÜK AMİRAL SEKME (PORTFÖY & PİYASA KEŞİF)
 # ==============================================================================
 
 tab_portfoy, tab_kesif = st.tabs([
@@ -830,7 +830,7 @@ tab_portfoy, tab_kesif = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-# 💼 SEKME 1: PORTFÖY & SERVET YÖNETİMİ
+# SEKME 1: PORTFÖY & SERVET YÖNETİMİ
 # ------------------------------------------------------------------------------
 with tab_portfoy:
     st.title("Kişisel Portföy & Servet Paneli")
@@ -1098,7 +1098,7 @@ with tab_portfoy:
             with col_strat2:
                 rebalance_mod = st.radio(
                     "Dengeleme Yaklaşımı:",
-                    ["🔄 Kâr Satışı ile Dengeleme (Sıfır Nakit)", "💰 Yeni Tasarruf Ekleme (Satışsız)"],
+                    ["Kâr Satışı ile Dengeleme (Sıfır Nakit)", "Yeni Tasarruf Ekleme (Satışsız)"],
                     horizontal=True,
                     key="rebalance_mod_secim"
                 )
@@ -1233,7 +1233,7 @@ with tab_portfoy:
                 with col_em1:
                     st.markdown("""
                     <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #f87171; margin-bottom: 8px;">
-                        🔴 Kâr Satış Emirleri (Nakit Yarat)
+                        ● Kâr Satış Emirleri (Nakit Yarat)
                     </div>
                     """, unsafe_allow_html=True)
                     if not satis_emirleri:
@@ -1256,7 +1256,7 @@ with tab_portfoy:
                 with col_em2:
                     st.markdown("""
                     <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #4ade80; margin-bottom: 8px;">
-                        🟢 Alım & Takviye Emirleri (Açığı Kapat)
+                        ● Alım & Takviye Emirleri (Açığı Kapat)
                     </div>
                     """, unsafe_allow_html=True)
                     if not alis_emirleri:
@@ -1520,7 +1520,7 @@ Lütfen 3 başlık altında profesyonel, net ve Türkçe bir analiz sun:
 
 
 # ------------------------------------------------------------------------------
-# 🔍 SEKME 2: PİYASA & ŞİRKET KEŞİF TERMİNALİ
+# SEKME 2: PİYASA & ŞİRKET KEŞİF TERMİNALİ
 # ------------------------------------------------------------------------------
 with tab_kesif:
     st.title("Piyasa & Şirket Keşif Terminali")
