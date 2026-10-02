@@ -369,6 +369,7 @@ def get_company_fundamentals(symbol: str) -> dict:
         pe = info.get("trailingPE") or info.get("forwardPE")
         pb = info.get("priceToBook")
         div_y = info.get("dividendYield") or info.get("trailingAnnualDividendYield")
+        div_r = info.get("dividendRate")
         
         h52 = info.get("fiftyTwoWeekHigh")
         l52 = info.get("fiftyTwoWeekLow")
@@ -397,6 +398,7 @@ def get_company_fundamentals(symbol: str) -> dict:
             "trailingPE": pe,
             "priceToBook": pb,
             "dividendYield": div_y,
+            "dividendRate": div_r,
             "fiftyTwoWeekHigh": h52,
             "fiftyTwoWeekLow": l52,
         }
@@ -483,7 +485,14 @@ st.sidebar.caption(f"{user_email}")
 st.sidebar.caption(f"Piyasa Kuru: 1 USD = **{usd_try:.2f} TL**")
 
 if is_demo:
-    st.sidebar.caption("Oturum Modu: Demo Hesabı")
+    st.sidebar.markdown("""
+    <div style="background: rgba(56, 189, 248, 0.06); border: 1px solid rgba(56, 189, 248, 0.18); border-radius: 10px; padding: 10px 14px; margin: 10px 0;">
+        <span style="font-size: 11px; font-weight: 600; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">✦ Demo Hesabı Aktif</span>
+        <div style="font-size: 11.5px; color: #cbd5e1; margin-top: 4px; line-height: 1.4;">
+            Portföyünüzü buluta kalıcı kaydetmek için oturumu kapatıp <b>ücretsiz hesap</b> açabilirsiniz.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 if st.sidebar.button("Oturumu Kapat", use_container_width=True):
     st.session_state.kullanici = None
@@ -727,9 +736,11 @@ with tab_portfoy:
                     fund = get_company_fundamentals(sembol)
                 except Exception:
                     fund = {}
+                div_rate = fund.get("dividendRate")
                 div_yield = fund.get("dividendYield")
                 
                 fiyat_tl = 0.0
+                p_para = "TL"
                 try:
                     df_h = varlik_gecmisi_getir(sembol, period="5d")
                     if not df_h.empty:
@@ -739,16 +750,34 @@ with tab_portfoy:
                 except Exception:
                     fiyat_tl = float(veri.get("maliyet", 0.0))
 
-                if div_yield and not pd.isna(div_yield) and div_yield > 0:
+                # Detay A: dividendRate varsa doğrudan hisse başına net nakit ile hesapla
+                hisse_yillik = 0.0
+                gosterim_verim = "—"
+                if div_rate and not pd.isna(div_rate) and div_rate > 0:
+                    rate_tl = div_rate * usd_try if p_para == "USD" else div_rate
+                    hisse_yillik = adet * rate_tl
+                    toplam_yillik_temettu += hisse_yillik
+                    if div_yield and not pd.isna(div_yield) and div_yield > 0:
+                        y_val = div_yield * 100 if div_yield < 1 else div_yield
+                        gosterim_verim = f"%{y_val:.2f} ({div_rate:.2f} {p_para}/Lot)"
+                    else:
+                        gosterim_verim = f"{div_rate:.2f} {p_para}/Lot"
+                elif div_yield and not pd.isna(div_yield) and div_yield > 0:
                     div_pct = (div_yield / 100) if div_yield > 1 else div_yield
                     hisse_yillik = (adet * fiyat_tl) * div_pct
                     toplam_yillik_temettu += hisse_yillik
+                    gosterim_verim = f"%{div_pct * 100:.2f}"
+
+                if hisse_yillik > 0:
                     temettu_satirlari.append({
                         "Varlık": sembol,
                         "Adet": f"{adet:,.2f}",
                         "Fiyat": f"{fiyat_tl:,.2f} TL",
-                        "Temettü Verimi": f"%{div_pct * 100:.2f}",
-                        "Yıllık Tahmini Gelir": f"{hisse_yillik:,.2f} TL"
+                        "Temettü / Lot": gosterim_verim,
+                        "Yıllık Tahmini Gelir": f"{hisse_yillik:,.2f} TL",
+                        "_hisse_yillik_num": hisse_yillik,
+                        "_fiyat_tl_num": fiyat_tl,
+                        "_adet_num": adet
                     })
 
             col_t1, col_t2, col_t3 = st.columns(3)
@@ -756,33 +785,76 @@ with tab_portfoy:
                 st.metric(
                     label="Yıllık Tahmini Pasif Gelir",
                     value=f"{toplam_yillik_temettu:,.2f} TL",
-                    help="Portföyünüzdeki hisselerin son dağıtım oranlarına göre yıllık nakit akışı tahmini."
+                    help="Portföyünüzdeki hisselerin net nakit dağıtım tutarlarına (dividendRate) göre yıllık nakit akışı tahmini."
                 )
             with col_t2:
                 aylik_nakit = toplam_yillik_temettu / 12
                 st.metric(
                     label="Aylık Ortalama Nakit Akışı",
                     value=f"{aylik_nakit:,.2f} TL / Ay",
-                    help="Yıllık temettü gelirinin 12 aya bölünmüş eşdeğer aylık pasif getirisi."
+                    help="Yıllık temettü gelirinin 12 aya bölünmüş eşdeğer aylık pasif maaş karşılığı."
                 )
             with col_t3:
                 portfoy_verim = (toplam_yillik_temettu / toplamGuncelDegerTL * 100) if toplamGuncelDegerTL > 0 else 0.0
                 st.metric(
                     label="Portföy Temettü Verimi",
                     value=f"%{portfoy_verim:.2f}",
-                    help="Toplam konsolide portföy büyüklüğünüze oranla temettü verimi."
+                    help="Toplam konsolide portföy büyüklüğünüze oranla yıllık net temettü verimi."
                 )
 
             if temettu_satirlari:
-                st.dataframe(pd.DataFrame(temettu_satirlari), use_container_width=True)
+                df_goster = pd.DataFrame([{k: v for k, v in row.items() if not k.startswith('_')} for row in temettu_satirlari])
+                st.dataframe(df_goster, use_container_width=True)
             else:
                 st.info("Portföyünüzde şu an temettü dağıtan bir hisse senedi bulunmuyor veya çarpanları sıfır görünüyor.")
 
-            # Temettü Emekliliği Hedef İlerlemesi
-            hedef_aylik = 17002.0  # Asgari ücret referansı
-            ilerleme = min(aylik_nakit / hedef_aylik, 1.0) if hedef_aylik > 0 else 0.0
-            st.progress(ilerleme)
-            st.caption(f"✦ **Temettü Emekliliği Radarı:** 17.000 TL/Ay (Asgari Ücret Eşdeğeri) Pasif Gelir Hedefinizin **%{ilerleme*100:.1f}** kadarı karşılanıyor.")
+            # Detay B: Kullanıcı Hedefi + Sepet Dengesini Bozmadan Hedefe Ulaşma Reçetesi
+            st.divider()
+            st.markdown("###### Temettü Emekliliği Hedef Simülatörü")
+            col_h1, col_h2 = st.columns([1.5, 2.5])
+            with col_h1:
+                hedef_aylik = st.number_input(
+                    "Aylık Hedef Pasif Gelir (TL):",
+                    min_value=1000.0,
+                    max_value=1000000.0,
+                    value=25000.0,
+                    step=2500.0,
+                    help="Hedeflediğiniz aylık ortalama net pasif temettü geliri."
+                )
+            with col_h2:
+                ilerleme = min(aylik_nakit / hedef_aylik, 1.0) if hedef_aylik > 0 else 0.0
+                st.write("")
+                st.progress(ilerleme)
+                st.caption(f"✦ **Hedef İlerlemesi:** {hedef_aylik:,.0f} TL/Ay Hedefinizin **%{ilerleme*100:.1f}** kadarı mevcut hisselerinizce karşılanıyor.")
+
+            # Hedefe Ulaşma Matematiksel Reçetesi
+            if aylik_nakit < hedef_aylik:
+                aylik_acik = hedef_aylik - aylik_nakit
+                yillik_acik = aylik_acik * 12
+
+                recete_parcalari = []
+                if temettu_satirlari and toplam_yillik_temettu > 0:
+                    for row in temettu_satirlari:
+                        pay = row["_hisse_yillik_num"] / toplam_yillik_temettu
+                        hisseye_dusen_yillik = yillik_acik * pay
+                        hisse_basina_yillik = row["_hisse_yillik_num"] / row["_adet_num"] if row["_adet_num"] > 0 else 0.0
+                        if hisse_basina_yillik > 0:
+                            gereken_ek_lot = int(np.ceil(hisseye_dusen_yillik / hisse_basina_yillik))
+                            recete_parcalari.append(f"+{gereken_ek_lot:,} lot **{row['Varlık']}**")
+                
+                recete_str = ", ".join(recete_parcalari) if recete_parcalari else "portföyünüze temettü verimi yüksek hisseler eklenmesi"
+
+                st.markdown(f"""
+                <div style="background: rgba(255, 255, 255, 0.015); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px 16px; margin-top: 10px;">
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #94a3b8;">✦ Sepet Dengeleme & Hedefe Ulaşma Reçetesi</div>
+                    <div style="font-size: 12.5px; color: #cbd5e1; margin-top: 5px; line-height: 1.5;">
+                        Aylık <b>{hedef_aylik:,.0f} TL</b> hedefe ulaşmak için yıllık <b>{yillik_acik:,.0f} TL</b> ek nakit akışı gerekiyor.
+                        Mevcut hisse dağılım dengenizi koruyarak bu açığı kapatmak için portföyünüze yaklaşık: <b>{recete_str}</b> takviyesi yapılması önerilir.
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.success("Tebrikler! Mevcut portföyünüz belirlediğiniz aylık pasif gelir hedefini fazlasıyla karşılıyor.")
 
         # Öne Çıkan Getiriler
         if enIyiVarlik and enKotuVarlik:
@@ -1039,9 +1111,17 @@ with tab_kesif:
         secilen_hizli = st.selectbox("Popüler Varlıklar:", hizli_secenekler, key="kesif_hizli_secim")
 
     with col_arama:
-        serbest_arama = st.text_input("Doğrudan Sembol Girişi:", placeholder="Örn: MGROS.IS, NFLX, SOL-USD").upper().strip()
+        serbest_arama = st.text_input("Doğrudan Sembol Girişi:", placeholder="Örn: THYAO, MGROS, NVDA, BTC-USD").upper().strip()
 
     aktif_kesif_sembol = serbest_arama if serbest_arama else secilen_hizli
+
+    # Detay C: BIST Hisselerinde Otomatik .IS Algılama
+    if serbest_arama and "." not in serbest_arama and "-" not in serbest_arama and len(serbest_arama) >= 3:
+        test_df = varlik_gecmisi_getir(serbest_arama, period="5d")
+        if test_df.empty:
+            test_bist = varlik_gecmisi_getir(serbest_arama + ".IS", period="5d")
+            if not test_bist.empty:
+                aktif_kesif_sembol = serbest_arama + ".IS"
 
     st.divider()
 
@@ -1079,53 +1159,71 @@ with tab_kesif:
                 delta=f"{gunluk_degisim_yuzde:+.2f}% (24s)"
             )
 
-        # 5'li Finansal Bilanço & Değerleme Çarpanları
-        m_cap = k_info.get("marketCap")
-        if m_cap and not pd.isna(m_cap) and m_cap > 0:
-            m_cap_str = f"{m_cap / 1e9:,.2f} Milyar {k_para}"
+        # Detay D: Emtia & Altın Varlıkları İçin Özel Değerleme Paneli
+        if aktif_kesif_sembol == "GRAM_ALTIN" or "=F" in aktif_kesif_sembol:
+            st.markdown(f"""
+            <div style="background: rgba(251, 191, 36, 0.025); border: 1px solid rgba(251, 191, 36, 0.16); border-radius: 12px; padding: 14px 18px; margin: 10px 0 16px 0;">
+                <div style="font-size: 13px; font-weight: 600; color: #fbbf24; margin-bottom: 4px;">✦ Kıymetli Maden & Emtia Fiyatlandırma Modeli ({aktif_kesif_sembol})</div>
+                <div style="font-size: 12.5px; color: #cbd5e1; line-height: 1.5;">
+                    Altın ve değerli madenler şirket bilançosu barındırmaz; F/K (P/E), PD/DD veya Temettü gibi hisse çarpanları bulunmaz.
+                    Fiyat oluşumu <b>Küresel ONS (GC=F)</b> ve <b>USD/TRY</b> paritesi üzerinden <code>(ONS / 31.1035) × USD/TRY</code> matematiksel formülüyle anlık hesaplanmaktadır.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         else:
-            m_cap_str = "—"
+            # 5'li Finansal Bilanço & Değerleme Çarpanları
+            m_cap = k_info.get("marketCap")
+            if m_cap and not pd.isna(m_cap) and m_cap > 0:
+                m_cap_str = f"{m_cap / 1e9:,.2f} Milyar {k_para}"
+            else:
+                m_cap_str = "—"
+                
+            pe_ratio = k_info.get("trailingPE")
+            pe_str = f"{pe_ratio:.2f}" if (pe_ratio and not pd.isna(pe_ratio)) else "—"
             
-        pe_ratio = k_info.get("trailingPE")
-        pe_str = f"{pe_ratio:.2f}" if (pe_ratio and not pd.isna(pe_ratio)) else "—"
-        
-        pb_ratio = k_info.get("priceToBook")
-        pb_str = f"{pb_ratio:.2f}" if (pb_ratio and not pd.isna(pb_ratio)) else "—"
-        
-        div_yield = k_info.get("dividendYield")
-        if div_yield and not pd.isna(div_yield) and div_yield > 0:
-            div_pct = div_yield * 100 if div_yield < 1 else div_yield
-            div_str = f"%{div_pct:.2f}"
-        else:
-            div_str = "%0.00"
+            pb_ratio = k_info.get("priceToBook")
+            pb_str = f"{pb_ratio:.2f}" if (pb_ratio and not pd.isna(pb_ratio)) else "—"
             
-        # 52 Haftalık Zirve / Dip Garantisi (Geçmiş tablodan matematiksel hesaplama yedeği)
-        h_52 = k_info.get("fiftyTwoWeekHigh")
-        l_52 = k_info.get("fiftyTwoWeekLow")
-        if (not h_52 or pd.isna(h_52)) and not k_gecmis.empty:
-            h_52 = float(k_gecmis['Close'].max())
-        if (not l_52 or pd.isna(l_52)) and not k_gecmis.empty:
-            l_52 = float(k_gecmis['Close'].min())
-            
-        if h_52 and l_52 and not pd.isna(h_52) and not pd.isna(l_52):
-            aralik_52_str = f"{l_52:,.2f} - {h_52:,.2f} {k_para}"
-            aralik_52_help = f"52 Haftalık En Düşük: {l_52:,.2f} {k_para} | En Yüksek: {h_52:,.2f} {k_para}"
-        else:
-            aralik_52_str = "—"
-            aralik_52_help = "52 haftalık fiyat aralığı hesaplanamadı."
+            div_yield = k_info.get("dividendYield")
+            div_rate = k_info.get("dividendRate")
+            if div_rate and not pd.isna(div_rate) and div_rate > 0:
+                div_str = f"{div_rate:.2f} {k_para}"
+                if div_yield and not pd.isna(div_yield) and div_yield > 0:
+                    y_p = div_yield * 100 if div_yield < 1 else div_yield
+                    div_str = f"%{y_p:.2f} ({div_rate:.2f} {k_para})"
+            elif div_yield and not pd.isna(div_yield) and div_yield > 0:
+                div_pct = div_yield * 100 if div_yield < 1 else div_yield
+                div_str = f"%{div_pct:.2f}"
+            else:
+                div_str = "%0.00"
+                
+            # 52 Haftalık Zirve / Dip Garantisi (Geçmiş tablodan matematiksel hesaplama yedeği)
+            h_52 = k_info.get("fiftyTwoWeekHigh")
+            l_52 = k_info.get("fiftyTwoWeekLow")
+            if (not h_52 or pd.isna(h_52)) and not k_gecmis.empty:
+                h_52 = float(k_gecmis['Close'].max())
+            if (not l_52 or pd.isna(l_52)) and not k_gecmis.empty:
+                l_52 = float(k_gecmis['Close'].min())
+                
+            if h_52 and l_52 and not pd.isna(h_52) and not pd.isna(l_52):
+                aralik_52_str = f"{l_52:,.2f} - {h_52:,.2f} {k_para}"
+                aralik_52_help = f"52 Haftalık En Düşük: {l_52:,.2f} {k_para} | En Yüksek: {h_52:,.2f} {k_para}"
+            else:
+                aralik_52_str = "—"
+                aralik_52_help = "52 haftalık fiyat aralığı hesaplanamadı."
 
-        st.markdown("##### Temel Analiz & Bilanço Göstergeleri")
-        c_val1, c_val2, c_val3, c_val4, c_val5 = st.columns(5)
-        with c_val1:
-            st.metric("Piyasa Değeri", m_cap_str)
-        with c_val2:
-            st.metric("F/K Oranı (P/E)", pe_str)
-        with c_val3:
-            st.metric("PD/DD (P/B)", pb_str)
-        with c_val4:
-            st.metric("Temettü Verimi", div_str)
-        with c_val5:
-            st.metric("52 Haftalık Aralık", aralik_52_str, help=aralik_52_help)
+            st.markdown("##### Temel Analiz & Bilanço Göstergeleri")
+            c_val1, c_val2, c_val3, c_val4, c_val5 = st.columns(5)
+            with c_val1:
+                st.metric("Piyasa Değeri", m_cap_str)
+            with c_val2:
+                st.metric("F/K Oranı (P/E)", pe_str)
+            with c_val3:
+                st.metric("PD/DD (P/B)", pb_str)
+            with c_val4:
+                st.metric("Temettü Dağıtımı", div_str)
+            with c_val5:
+                st.metric("52 Haftalık Aralık", aralik_52_str, help=aralik_52_help)
 
         # İnteraktif 1 Yıllık Grafik
         fig_kesif_trend = go.Figure()
