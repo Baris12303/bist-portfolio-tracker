@@ -460,6 +460,225 @@ JSON dışında hiçbir ek metin veya açıklama yazma.
     except Exception:
         return {}
 
+
+# --- AKILLI PORTFÖY DENGELEME ROBOTU MOTORU (SOLID - SRP) ---
+
+REBALANCE_STRATEJILERI = {
+    "Dengeli Dört Ayak (All-Weather)": {
+        "BIST Hissesi": 25.0,
+        "ABD Borsası": 25.0,
+        "Emtia & Maden": 25.0,
+        "Kripto Varlık": 25.0,
+        "aciklama": "Ray Dalio modeli; ekonomik döngülere karşı risk ve getiriyi 4 ana sütuna eşit (%25) dağıtır."
+    },
+    "Teknoloji & Büyüme (Agresif)": {
+        "BIST Hissesi": 20.0,
+        "ABD Borsası": 40.0,
+        "Emtia & Maden": 10.0,
+        "Kripto Varlık": 30.0,
+        "aciklama": "Yüksek risk toleransı; küresel yapay zeka, teknoloji ve kripto yükseliş ivmesine odaklanır."
+    },
+    "Defansif & Temettü (Muhafazakar)": {
+        "BIST Hissesi": 35.0,
+        "ABD Borsası": 15.0,
+        "Emtia & Maden": 40.0,
+        "Kripto Varlık": 10.0,
+        "aciklama": "Sermaye koruma ve nakit akışı; kıymetli madenler ve BIST temettü devlerine ağırlık verir."
+    },
+    "Özel Dağılım (Kişiselleştirilmiş)": {
+        "BIST Hissesi": 25.0,
+        "ABD Borsası": 25.0,
+        "Emtia & Maden": 25.0,
+        "Kripto Varlık": 25.0,
+        "aciklama": "Kendi yatırım felsefenize göre hedef yüzdeleri serbestçe belirleyin."
+    }
+}
+
+def hesapla_portfoy_rebalancing(
+    kategori_degerler: dict, 
+    toplam_deger_tl: float, 
+    hedef_oranlar: dict, 
+    eklenecek_nakit_tl: float = 0.0, 
+    mod: str = "satisli",
+    portfoy: dict = None,
+    portfoy_fiyatlari_tl: dict = None
+) -> dict:
+    """
+    Portföy hedef ağırlıkları ile mevcut ağırlıklar arasındaki sapmayı (drift)
+    ölçer ve hem sınıf hem tekil varlık bazında matematiksel alış/satış reçetesi üretir.
+    """
+    ana_siniflar = ["BIST Hissesi", "ABD Borsası", "Emtia & Maden", "Kripto Varlık"]
+    hedef_toplam = (toplam_deger_tl + eklenecek_nakit_tl) if mod == "tasarruf" else toplam_deger_tl
+    
+    sinif_analizleri = []
+    for kat in ana_siniflar:
+        mevcut_deger = float(kategori_degerler.get(kat, 0.0))
+        mevcut_oran = (mevcut_deger / toplam_deger_tl * 100.0) if toplam_deger_tl > 0 else 0.0
+        hedef_oran = float(hedef_oranlar.get(kat, 0.0))
+        hedef_deger = hedef_toplam * (hedef_oran / 100.0)
+        
+        sapma_yuzde = mevcut_oran - hedef_oran
+        fark_tl = hedef_deger - mevcut_deger
+        
+        durum = "Dengede"
+        if sapma_yuzde > 2.0:
+            durum = "Aşırı Ağırlık"
+        elif sapma_yuzde < -2.0:
+            durum = "Düşük Ağırlık"
+            
+        sinif_analizleri.append({
+            "sinif": kat,
+            "mevcut_deger": mevcut_deger,
+            "mevcut_oran": mevcut_oran,
+            "hedef_oran": hedef_oran,
+            "hedef_deger": hedef_deger,
+            "sapma_yuzde": sapma_yuzde,
+            "fark_tl": fark_tl,
+            "durum": durum
+        })
+
+    # Lot Reçetesini Oluşturma
+    recete_emirleri = []
+    toplam_alis_tl = 0.0
+    toplam_satis_tl = 0.0
+
+    if portfoy and portfoy_fiyatlari_tl:
+        sinif_varliklari = {kat: [] for kat in ana_siniflar}
+        for sembol, bilgi in portfoy.items():
+            k_sinif, _, _ = varlik_sinifi_belirle(sembol)
+            if k_sinif in sinif_varliklari:
+                fiyat_tl, _ = portfoy_fiyatlari_tl.get(sembol, (0.0, "TL"))
+                adet = float(bilgi.get("adet", 0.0))
+                guncel_deger = fiyat_tl * adet
+                sinif_varliklari[k_sinif].append({
+                    "sembol": sembol,
+                    "fiyat_tl": fiyat_tl,
+                    "adet": adet,
+                    "deger_tl": guncel_deger
+                })
+
+        if mod == "satisli":
+            for sa in sinif_analizleri:
+                kat = sa["sinif"]
+                fark = sa["fark_tl"]
+                varliklar = sinif_varliklari.get(kat, [])
+                
+                if not varliklar:
+                    if fark > 500:
+                        recete_emirleri.append({
+                            "islem": "AL",
+                            "varlik": f"{kat} (Yeni Pozisyon)",
+                            "lot_metin": f"+{fark:,.0f} TL",
+                            "tutar_tl": fark,
+                            "sinif": kat
+                        })
+                        toplam_alis_tl += fark
+                    continue
+                    
+                kat_toplam_deger = sum(v["deger_tl"] for v in varliklar)
+                
+                if fark > 0: # Alış
+                    for v in varliklar:
+                        pay = (v["deger_tl"] / kat_toplam_deger) if kat_toplam_deger > 0 else (1.0 / len(varliklar))
+                        varliga_tutar = fark * pay
+                        if v["fiyat_tl"] > 0:
+                            lot = (varliga_tutar / v["fiyat_tl"])
+                            if kat == "Kripto Varlık":
+                                lot_str = f"+{lot:.4f}"
+                            elif kat == "Emtia & Maden":
+                                lot_str = f"+{lot:.2f} Gr"
+                            else:
+                                lot_int = int(round(lot))
+                                lot_str = f"+{lot_int:,} Lot" if lot_int > 0 else None
+                                
+                            if lot_str and (lot > 0.0001) and (varliga_tutar >= 100.0 or kat == "Kripto Varlık"):
+                                recete_emirleri.append({
+                                    "islem": "AL",
+                                    "varlik": v["sembol"],
+                                    "lot_metin": lot_str,
+                                    "tutar_tl": varliga_tutar,
+                                    "sinif": kat
+                                })
+                                toplam_alis_tl += varliga_tutar
+                elif fark < 0: # Satış
+                    satis_hedefi = abs(fark)
+                    for v in varliklar:
+                        pay = (v["deger_tl"] / kat_toplam_deger) if kat_toplam_deger > 0 else (1.0 / len(varliklar))
+                        varliga_satis = satis_hedefi * pay
+                        if v["fiyat_tl"] > 0:
+                            lot = (varliga_satis / v["fiyat_tl"])
+                            if kat == "Kripto Varlık":
+                                lot_str = f"-{lot:.4f}"
+                            elif kat == "Emtia & Maden":
+                                lot_str = f"-{lot:.2f} Gr"
+                            else:
+                                lot_int = int(round(lot))
+                                lot_str = f"-{lot_int:,} Lot" if lot_int > 0 else None
+                                
+                            if lot_str and (lot > 0.0001) and (varliga_satis >= 100.0 or kat == "Kripto Varlık"):
+                                recete_emirleri.append({
+                                    "islem": "SAT",
+                                    "varlik": v["sembol"],
+                                    "lot_metin": lot_str,
+                                    "tutar_tl": varliga_satis,
+                                    "sinif": kat
+                                })
+                                toplam_satis_tl += varliga_satis
+        else:
+            # Mod B: Tasarruf Ekleme (Yalnızca AL, satış yok)
+            eksik_siniflar = [sa for sa in sinif_analizleri if sa["fark_tl"] > 0]
+            toplam_eksik_tl = sum(sa["fark_tl"] for sa in eksik_siniflar)
+            
+            if toplam_eksik_tl > 0 and eklenecek_nakit_tl > 0:
+                for sa in eksik_siniflar:
+                    kat = sa["sinif"]
+                    kat_pay = sa["fark_tl"] / toplam_eksik_tl
+                    kat_nakit = eklenecek_nakit_tl * kat_pay
+                    varliklar = sinif_varliklari.get(kat, [])
+                    
+                    if not varliklar:
+                        recete_emirleri.append({
+                            "islem": "AL",
+                            "varlik": f"{kat} (Yeni Pozisyon)",
+                            "lot_metin": f"+{kat_nakit:,.0f} TL",
+                            "tutar_tl": kat_nakit,
+                            "sinif": kat
+                        })
+                        toplam_alis_tl += kat_nakit
+                        continue
+                        
+                    kat_toplam_deger = sum(v["deger_tl"] for v in varliklar)
+                    for v in varliklar:
+                        pay = (v["deger_tl"] / kat_toplam_deger) if kat_toplam_deger > 0 else (1.0 / len(varliklar))
+                        varliga_tutar = kat_nakit * pay
+                        if v["fiyat_tl"] > 0 and varliga_tutar > 0:
+                            lot = (varliga_tutar / v["fiyat_tl"])
+                            if kat == "Kripto Varlık":
+                                lot_str = f"+{lot:.4f}"
+                            elif kat == "Emtia & Maden":
+                                lot_str = f"+{lot:.2f} Gr"
+                            else:
+                                lot_int = int(round(lot))
+                                lot_str = f"+{lot_int:,} Lot" if lot_int > 0 else None
+                                
+                            if lot_str and (lot > 0.0001) and (varliga_tutar >= 100.0 or kat == "Kripto Varlık"):
+                                recete_emirleri.append({
+                                    "islem": "AL",
+                                    "varlik": v["sembol"],
+                                    "lot_metin": lot_str,
+                                    "tutar_tl": varliga_tutar,
+                                    "sinif": kat
+                                })
+                                toplam_alis_tl += varliga_tutar
+
+    return {
+        "sinif_analizleri": sinif_analizleri,
+        "recete_emirleri": recete_emirleri,
+        "toplam_alis_tl": toplam_alis_tl,
+        "toplam_satis_tl": toplam_satis_tl,
+        "hedef_toplam": hedef_toplam
+    }
+
 # --- GİRİŞ YAPILMIŞ KULLANICI AKIŞI ---
 user = st.session_state.kullanici
 user_email = user["email"]
@@ -714,7 +933,12 @@ with tab_portfoy:
         st.dataframe(tabloVerisi, use_container_width=True)
 
         st.divider()
-        tab_pasta1, tab_pasta2, tab_temettu = st.tabs(["Varlık Sınıfı Dağılımı", "Pozisyon Bazında Dağılım", "Temettü & Pasif Gelir Radarı"])
+        tab_pasta1, tab_pasta2, tab_temettu, tab_dengeleme = st.tabs([
+            "Varlık Sınıfı Dağılımı", 
+            "Pozisyon Bazında Dağılım", 
+            "Temettü & Pasif Gelir Radarı",
+            "Akıllı Portföy Dengeleme"
+        ])
         
         luxury_colors = ['#38bdf8', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#64748b']
         
@@ -855,6 +1079,217 @@ with tab_portfoy:
                 """, unsafe_allow_html=True)
             else:
                 st.success("Tebrikler! Mevcut portföyünüz belirlediğiniz aylık pasif gelir hedefini fazlasıyla karşılıyor.")
+
+        with tab_dengeleme:
+            st.markdown("##### Akıllı Portföy Dengeleme & Rebalance Robotu")
+            st.caption("Piyasa dalgalanmalarının bozduğu varlık ağırlıklarını stratejik hedefinize geri döndürmek için otomatik al/sat reçetesi üretir.")
+
+            # 1. Strateji ve Mod Seçimi
+            col_strat1, col_strat2 = st.columns([1.5, 1.5])
+            with col_strat1:
+                secilen_strat_adi = st.selectbox(
+                    "Stratejik Dağılım Modeli:",
+                    list(REBALANCE_STRATEJILERI.keys()),
+                    key="rebalance_strat_secim"
+                )
+                strat_bilgi = REBALANCE_STRATEJILERI[secilen_strat_adi]
+                st.caption(f"✦ **Model Felsefesi:** {strat_bilgi['aciklama']}")
+
+            with col_strat2:
+                rebalance_mod = st.radio(
+                    "Dengeleme Yaklaşımı:",
+                    ["🔄 Kâr Satışı ile Dengeleme (Sıfır Nakit)", "💰 Yeni Tasarruf Ekleme (Satışsız)"],
+                    horizontal=True,
+                    key="rebalance_mod_secim"
+                )
+                secilen_mod_kodu = "satisli" if "Sıfır Nakit" in rebalance_mod else "tasarruf"
+                if secilen_mod_kodu == "satisli":
+                    st.caption("✦ Hedefi aşan varlıklardan kâr satışı yapılır; elde edilen nakitle geride kalanlar alınır.")
+                else:
+                    st.caption("✦ Hiçbir varlık satılmaz; eklenen yeni tasarruf en geride kalan sınıflara paylaştırılır.")
+
+            # Hedef Yüzdelerin Alınması
+            hedef_oranlar = {}
+            if secilen_strat_adi == "Özel Dağılım (Kişiselleştirilmiş)":
+                st.markdown("###### Özel Hedef Yüzdelerinizi Belirleyin (Toplam %100 Olmalıdır):")
+                c_oz1, c_oz2, c_oz3, c_oz4 = st.columns(4)
+                with c_oz1:
+                    h_bist = st.number_input("% Borsa İstanbul", min_value=0.0, max_value=100.0, value=25.0, step=5.0, key="h_bist_in")
+                with c_oz2:
+                    h_abd = st.number_input("% Amerikan Borsası", min_value=0.0, max_value=100.0, value=25.0, step=5.0, key="h_abd_in")
+                with c_oz3:
+                    h_altin = st.number_input("% Altın & Emtia", min_value=0.0, max_value=100.0, value=25.0, step=5.0, key="h_altin_in")
+                with c_oz4:
+                    h_kripto = st.number_input("% Kripto Varlık", min_value=0.0, max_value=100.0, value=25.0, step=5.0, key="h_kripto_in")
+                
+                toplam_hedef_yuzde = h_bist + h_abd + h_altin + h_kripto
+                if abs(toplam_hedef_yuzde - 100.0) > 0.01:
+                    st.warning(f"Hedef oranların toplamı %{toplam_hedef_yuzde:.0f}. Kusursuz dengeleme için toplam %100 olmalıdır.")
+                hedef_oranlar = {
+                    "BIST Hissesi": h_bist,
+                    "ABD Borsası": h_abd,
+                    "Emtia & Maden": h_altin,
+                    "Kripto Varlık": h_kripto
+                }
+            else:
+                hedef_oranlar = {
+                    "BIST Hissesi": strat_bilgi["BIST Hissesi"],
+                    "ABD Borsası": strat_bilgi["ABD Borsası"],
+                    "Emtia & Maden": strat_bilgi["Emtia & Maden"],
+                    "Kripto Varlık": strat_bilgi["Kripto Varlık"]
+                }
+
+            # Tasarruf Ekleme Miktarı (Mod B ise)
+            ek_nakit_tl = 0.0
+            if secilen_mod_kodu == "tasarruf":
+                col_nakit1, col_nakit2 = st.columns([1.5, 2.5])
+                with col_nakit1:
+                    ek_nakit_tl = st.number_input(
+                        "Portföye Eklenecek Yeni Tasarruf (TL):",
+                        min_value=500.0,
+                        max_value=10000000.0,
+                        value=15000.0,
+                        step=2500.0,
+                        key="rebalance_ek_nakit_in"
+                    )
+                with col_nakit2:
+                    st.write("")
+                    st.info(f"✦ Bu ay eklenecek **{ek_nakit_tl:,.0f} TL**, portföyünüzün hedef dağılımına en uzak varlıklara otomatik paylaştırılacaktır.")
+
+            # Matematiksel Motoru Çalıştır (SRP)
+            sonuc = hesapla_portfoy_rebalancing(
+                kategori_degerler=kategoriDegerler,
+                toplam_deger_tl=toplamGuncelDegerTL,
+                hedef_oranlar=hedef_oranlar,
+                eklenecek_nakit_tl=ek_nakit_tl,
+                mod=secilen_mod_kodu,
+                portfoy=portfoy,
+                portfoy_fiyatlari_tl=portfoy_fiyatlari_tl
+            )
+
+            st.divider()
+
+            # 2. Sapma & Denge Radarı (4 Varlık Sınıfı Kıyas Kartları)
+            st.markdown("###### Mevcut Ağırlık vs. Stratejik Hedef Radarı")
+            c_rad1, c_rad2, c_rad3, c_rad4 = st.columns(4)
+            sutunlar_radar = [c_rad1, c_rad2, c_rad3, c_rad4]
+
+            for idx, sa in enumerate(sonuc["sinif_analizleri"]):
+                col_r = sutunlar_radar[idx]
+                with col_r:
+                    kat_adi = sa["sinif"]
+                    mev_pct = sa["mevcut_oran"]
+                    hed_pct = sa["hedef_oran"]
+                    sapma = sa["sapma_yuzde"]
+                    durum = sa["durum"]
+
+                    if durum == "Aşırı Ağırlık":
+                        badge_bg = "rgba(239, 68, 68, 0.12)"
+                        badge_color = "#f87171"
+                        badge_border = "rgba(239, 68, 68, 0.25)"
+                        durum_etiket = f"Aşırı Ağırlık (+%{sapma:.1f})"
+                    elif durum == "Düşük Ağırlık":
+                        badge_bg = "rgba(56, 189, 248, 0.12)"
+                        badge_color = "#38bdf8"
+                        badge_border = "rgba(56, 189, 248, 0.25)"
+                        durum_etiket = f"Düşük Ağırlık (%{sapma:.1f})"
+                    else:
+                        badge_bg = "rgba(34, 197, 94, 0.12)"
+                        badge_color = "#4ade80"
+                        badge_border = "rgba(34, 197, 94, 0.25)"
+                        durum_etiket = "Dengede"
+
+                    st.markdown(f"""
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 14px 16px; margin-bottom: 8px;">
+                        <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #94a3b8; margin-bottom: 6px;">
+                            {kat_adi}
+                        </div>
+                        <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 20px; font-weight: 600; color: #f1f5f9;">%{mev_pct:.1f}</span>
+                            <span style="font-size: 12px; color: #64748b;">Hedef: %{hed_pct:.1f}</span>
+                        </div>
+                        <div style="background: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 12px; text-align: center;">
+                            ● {durum_etiket}
+                        </div>
+                        <div style="font-size: 11px; color: #64748b; margin-top: 8px; text-align: center;">
+                            Mevcut: {sa['mevcut_deger']:,.0f} TL
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+            # 3. Akıllı Alış / Satış Reçetesi
+            st.divider()
+            emirler = sonuc["recete_emirleri"]
+
+            if not emirler:
+                st.success("Tebrikler! Portföyünüz seçilen stratejik hedef dağılımıyla tam dengede. Herhangi bir al/sat işlemine gerek yok.")
+            else:
+                st.markdown("###### Dengeleme İçin Önerilen Lot ve İşlem Reçetesi")
+                col_em1, col_em2 = st.columns(2)
+                
+                satis_emirleri = [e for e in emirler if e["islem"] == "SAT"]
+                alis_emirleri = [e for e in emirler if e["islem"] == "AL"]
+
+                with col_em1:
+                    st.markdown("""
+                    <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #f87171; margin-bottom: 8px;">
+                        🔴 Kâr Satış Emirleri (Nakit Yarat)
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if not satis_emirleri:
+                        st.caption("Bu stratejide herhangi bir satış işlemi önerilmiyor.")
+                    else:
+                        for se in satis_emirleri:
+                            st.markdown(f"""
+                            <div style="background: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-size: 13.5px; font-weight: 600; color: #f1f5f9;">{se['varlik']}</div>
+                                    <div style="font-size: 11px; color: #94a3b8;">{se['sinif']}</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-size: 14px; font-weight: 600; color: #f87171;">{se['lot_metin']}</div>
+                                    <div style="font-size: 11px; color: #64748b;">≈ {se['tutar_tl']:,.0f} TL</div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                with col_em2:
+                    st.markdown("""
+                    <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #4ade80; margin-bottom: 8px;">
+                        🟢 Alım & Takviye Emirleri (Açığı Kapat)
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if not alis_emirleri:
+                        st.caption("Bu stratejide herhangi bir ek alım işlemi gerekmiyor.")
+                    else:
+                        for ae in alis_emirleri:
+                            st.markdown(f"""
+                            <div style="background: rgba(34, 197, 94, 0.04); border: 1px solid rgba(34, 197, 94, 0.15); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-size: 13.5px; font-weight: 600; color: #f1f5f9;">{ae['varlik']}</div>
+                                    <div style="font-size: 11px; color: #94a3b8;">{ae['sinif']}</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div style="font-size: 14px; font-weight: 600; color: #4ade80;">{ae['lot_metin']}</div>
+                                    <div style="font-size: 11px; color: #64748b;">≈ {ae['tutar_tl']:,.0f} TL</div>
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                ozet_metin = ""
+                if secilen_mod_kodu == "satisli":
+                    ozet_metin = f"Bu reçete uygulandığında yaklaşık <b>{sonuc['toplam_satis_tl']:,.0f} TL</b> nakit yaratılacak ve bu tutar eksik sınıflara dağıtılarak portföyünüz %100 hedef modeline kavuşacaktır."
+                else:
+                    ozet_metin = f"Eklediğiniz <b>{ek_nakit_tl:,.0f} TL</b> yeni tasarruf, mevcut varlıklarınız satılmadan doğrudan geride kalan sınıflara paylaştırılmıştır."
+
+                st.markdown(f"""
+                <div style="background: rgba(255, 255, 255, 0.015); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 10px; padding: 12px 16px; margin-top: 12px;">
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; color: #38bdf8;">✦ Rebalance Sonuç Özeti</div>
+                    <div style="font-size: 12.5px; color: #cbd5e1; margin-top: 4px; line-height: 1.5;">
+                        {ozet_metin}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
         # Öne Çıkan Getiriler
         if enIyiVarlik and enKotuVarlik:
