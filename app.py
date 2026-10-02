@@ -429,9 +429,9 @@ LÜTFEN SADECE VE SADECE aşağıdaki JSON formatında tek bir JSON objesi üret
 }}
 JSON dışında hiçbir ek metin veya açıklama yazma.
 """
-        modeller = ["gemini-2.5-flash", "gemini-1.5-flash"]
+        modeller = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         try:
-            live_models = [m.name for m in client.models.list() if "gemini" in m.name.lower()]
+            live_models = [m.name for m in client.models.list() if "gemini" in m.name.lower() and "embed" not in m.name.lower()]
             if live_models:
                 modeller = live_models
         except Exception:
@@ -1066,7 +1066,13 @@ Lütfen 3 başlık altında profesyonel, net ve Türkçe bir analiz sun:
 3. Kısa & Orta Vade Stratejik Öneriler
 (Yatırım tavsiyesi olmadığını belirt).
 """
-                            modeller = [m.name for m in client.models.list() if "gemini" in m.name.lower()] or ["gemini-3.8-flash"]
+                            modeller = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+                            try:
+                                live_models = [m.name for m in client.models.list() if "gemini" in m.name.lower() and "embed" not in m.name.lower()]
+                                if live_models:
+                                    modeller = live_models
+                            except Exception:
+                                pass
                             for m_name in modeller:
                                 try:
                                     res = client.models.generate_content(model=m_name, contents=prompt)
@@ -1305,45 +1311,6 @@ with tab_kesif:
                     </div>
                     """, unsafe_allow_html=True)
 
-        # Gemini Şirket Raporu
-        st.divider()
-        st.markdown("##### Yapay Zeka Şirket & Değerleme Raporu")
-        if st.button("Şirket ve Haber Raporu Üret", key="gemini_kesif_btn"):
-            if not gemini_key:
-                st.warning("Sol menüden Gemini API anahtarınızı tanımlayın.")
-            else:
-                with st.spinner("Rapor oluşturuluyor..."):
-                    try:
-                        from google import genai
-                        client = genai.Client(api_key=gemini_key)
-                        haber_metinleri = "\n".join([f"- {h['headline']} ({h['source']})" for h in haberler])
-                        prompt_kesif = f"""
-Sen Wall Street ve Borsa İstanbul'da kıdemli bir Hisse Senedi Araştırma (Equity Research) analistisin.
-Varlık: {sirket_uzun_adi} ({aktif_kesif_sembol})
-Sınıf: {k_kat} | Sektör: {sektor}
-Piyasa Fiyatı: {guncel_kesif_fiyat:,.2f} {k_para}
-Piyasa Değeri: {m_cap_str}
-F/K: {pe_str} | PD/DD: {pb_str} | Temettü: {div_str}
-52 Haftalık Aralık: {l52_str} - {h52_str}
-Son Haber Başlıkları:
-{haber_metinleri if haber_metinleri else 'Yeni haber bulunamadı.'}
-
-Lütfen yatırımcıya 3 başlık altında net, profesyonel ve Türkçe bir rapor sun:
-1. İş Modeli ve Sektörel Rekabet Gücü
-2. Bilanço & Değerleme Çarpanları Yorumu (F/K, PD/DD, Temettü)
-3. Piyasa Algısı ve Haber Akışı Yorumu
-(Yatırım tavsiyesi olmadığını belirt).
-"""
-                        modeller = [m.name for m in client.models.list() if "gemini" in m.name.lower()] or ["gemini-3.8-flash"]
-                        for m_name in modeller:
-                            try:
-                                res_kesif = client.models.generate_content(model=m_name, contents=prompt_kesif)
-                                st.markdown(res_kesif.text)
-                                break
-                            except Exception:
-                                continue
-                    except Exception as err:
-                        st.error(f"Hata: {err}")
 
         # Portföye Ekleme
         st.divider()
