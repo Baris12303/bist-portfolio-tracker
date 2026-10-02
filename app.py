@@ -308,12 +308,11 @@ def varlik_gecmisi_getir(sembol: str, period="6mo") -> pd.DataFrame:
         try:
             ons = yf.Ticker("GC=F").history(period=period)['Close']
             usd = yf.Ticker("USDTRY=X").history(period=period)['Close']
-            ons.index = ons.index.date
-            usd.index = usd.index.date
-            df_merged = pd.concat([ons, usd], axis=1, keys=['ons', 'usd']).ffill().dropna()
+            ons.index = pd.to_datetime(ons.index).tz_localize(None).normalize()
+            usd.index = pd.to_datetime(usd.index).tz_localize(None).normalize()
+            df_merged = pd.concat([ons, usd], axis=1, keys=['ons', 'usd']).sort_index().ffill().dropna()
             gram_series = (df_merged['ons'] / 31.1034768) * df_merged['usd']
-            df = pd.DataFrame({'Close': gram_series})
-            df.index = pd.to_datetime(df.index)
+            df = pd.DataFrame({'Close': gram_series}).sort_index()
             return df
         except Exception:
             return pd.DataFrame()
@@ -321,6 +320,8 @@ def varlik_gecmisi_getir(sembol: str, period="6mo") -> pd.DataFrame:
         try:
             hisse = yf.Ticker(s)
             df = hisse.history(period=period)
+            if not df.empty:
+                df = df.sort_index()
             return df
         except Exception:
             return pd.DataFrame()
@@ -1308,6 +1309,7 @@ with tab_portfoy:
         secilenMaliyet = float(portfoy[secilen]["maliyet"])
 
         if not gecmisSecilen.empty:
+            gecmisSecilen = gecmisSecilen.sort_index()
             gecmisSecilen['SMA20'] = gecmisSecilen['Close'].rolling(window=20).mean()
             gecmisSecilen['SMA50'] = gecmisSecilen['Close'].rolling(window=50).mean()
 
@@ -1675,6 +1677,7 @@ with tab_kesif:
                 st.metric("52 Haftalık Aralık", aralik_52_str, help=aralik_52_help)
 
         # İnteraktif 1 Yıllık Grafik
+        k_gecmis = k_gecmis.sort_index()
         fig_kesif_trend = go.Figure()
         fig_kesif_trend.add_trace(go.Scatter(x=k_gecmis.index, y=k_gecmis['Close'], name='Kapanış', line=dict(color='#38bdf8', width=2.5)))
         sma20_k = k_gecmis['Close'].rolling(20).mean()
