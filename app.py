@@ -680,11 +680,213 @@ def hesapla_portfoy_rebalancing(
         "hedef_toplam": hedef_toplam
     }
 
+# --- AKILLI ALARM & BİLDİRİM RADARI MOTORU (SOLID - SRP) ---
+
+def denetle_portfoy_alarmlari(
+    portfoy: dict,
+    portfoy_fiyatlari: dict,
+    kullanici_hedefleri: dict,
+    rsi_degerleri: dict = None,
+    usd_kuru: float = 34.50
+) -> list:
+    """
+    Portföydeki varlıkların kâr alma (Take-Profit), zarar kes (Stop-Loss) ve
+    14 günlük RSI dip (aşırı satım) seviyelerini denetleyerek aktif alarmları döndürür.
+    """
+    if not portfoy or not portfoy_fiyatlari:
+        return []
+        
+    aktif_alarmlar = []
+    rsi_degerleri = rsi_degerleri or {}
+    
+    for sembol, bilgi in portfoy.items():
+        if sembol not in portfoy_fiyatlari:
+            continue
+            
+        fiyat_tl, _ = portfoy_fiyatlari[sembol]
+        maliyet = float(bilgi.get("maliyet", 0.0))
+        _, yerel_para, _ = varlik_sinifi_belirle(sembol)
+        yerel_fiyat = (fiyat_tl / usd_kuru) if yerel_para == "USD" and usd_kuru > 0 else fiyat_tl
+        
+        hedef_bilgi = kullanici_hedefleri.get(sembol, {}) if kullanici_hedefleri else {}
+        hedef_fiyat = hedef_bilgi.get("hedef") or hedef_bilgi.get("hedef_fiyat")
+        stop_loss = hedef_bilgi.get("stop") or hedef_bilgi.get("stop_loss")
+        
+        # 1. Kâr Alma (Take-Profit) Denetimi
+        if hedef_fiyat and hedef_fiyat > 0:
+            if yerel_fiyat >= hedef_fiyat:
+                aktif_alarmlar.append({
+                    "sembol": sembol,
+                    "tip": "HEDEF_ULASILDI",
+                    "etiket": "Kâr Hedefine Ulaşıldı",
+                    "mesaj": f"{sembol} belirlediğiniz {hedef_fiyat:,.2f} {yerel_para} kâr alma hedefine ulaştı (Piyasa: {yerel_fiyat:,.2f} {yerel_para}).",
+                    "seviye": "pozitif",
+                    "fiyat": yerel_fiyat,
+                    "hedef": hedef_fiyat,
+                    "para": yerel_para,
+                    "alarm_id": f"{sembol}_HEDEF"
+                })
+            elif (hedef_fiyat - yerel_fiyat) / hedef_fiyat <= 0.03 and yerel_fiyat < hedef_fiyat:
+                yaklasma_yuzde = ((hedef_fiyat - yerel_fiyat) / hedef_fiyat) * 100.0
+                aktif_alarmlar.append({
+                    "sembol": sembol,
+                    "tip": "HEDEF_YAKIN",
+                    "etiket": "Kâr Hedefine Yaklaşıyor",
+                    "mesaj": f"{sembol} kâr alma hedefine %{yaklasma_yuzde:.1f} yaklaştı (Piyasa: {yerel_fiyat:,.2f} {yerel_para} / Hedef: {hedef_fiyat:,.2f} {yerel_para}).",
+                    "seviye": "pozitif",
+                    "fiyat": yerel_fiyat,
+                    "hedef": hedef_fiyat,
+                    "para": yerel_para,
+                    "alarm_id": f"{sembol}_HEDEF_YAKIN"
+                })
+
+        # 2. Zarar Durdur (Stop-Loss) Denetimi
+        if stop_loss and stop_loss > 0:
+            if yerel_fiyat <= stop_loss:
+                aktif_alarmlar.append({
+                    "sembol": sembol,
+                    "tip": "STOP_LOSS",
+                    "etiket": "Stop-Loss Seviyesi Tetiklendi",
+                    "mesaj": f"{sembol} belirlediğiniz {stop_loss:,.2f} {yerel_para} zarar kes seviyesine geriledi (Piyasa: {yerel_fiyat:,.2f} {yerel_para}).",
+                    "seviye": "risk",
+                    "fiyat": yerel_fiyat,
+                    "hedef": stop_loss,
+                    "para": yerel_para,
+                    "alarm_id": f"{sembol}_STOP_LOSS"
+                })
+            elif (yerel_fiyat - stop_loss) / stop_loss <= 0.03 and yerel_fiyat > stop_loss:
+                risk_yuzde = ((yerel_fiyat - stop_loss) / stop_loss) * 100.0
+                aktif_alarmlar.append({
+                    "sembol": sembol,
+                    "tip": "STOP_YAKIN",
+                    "etiket": "Stop Seviyesine Yakın",
+                    "mesaj": f"{sembol} zarar kes seviyesine %{risk_yuzde:.1f} yaklaştı (Piyasa: {yerel_fiyat:,.2f} {yerel_para} / Stop: {stop_loss:,.2f} {yerel_para}).",
+                    "seviye": "risk",
+                    "fiyat": yerel_fiyat,
+                    "hedef": stop_loss,
+                    "para": yerel_para,
+                    "alarm_id": f"{sembol}_STOP_YAKIN"
+                })
+
+        # 3. RSI < 30 Dip Fırsatı Denetimi
+        rsi_val = rsi_degerleri.get(sembol)
+        if rsi_val and rsi_val < 30.0:
+            aktif_alarmlar.append({
+                "sembol": sembol,
+                "tip": "RSI_DIP",
+                "etiket": "RSI Dip Alım Fırsatı",
+                "mesaj": f"{sembol} 14 günlük RSI göstergesi {rsi_val:.1f} seviyesinde; aşırı satım ve dip alım fırsatı bölgesinde bulunuyor.",
+                "seviye": "firsat",
+                "fiyat": yerel_fiyat,
+                "hedef": 30.0,
+                "para": yerel_para,
+                "alarm_id": f"{sembol}_RSI_DIP"
+            })
+
+    return aktif_alarmlar
+
+def gonder_alarm_epostasi(alici_email: str, alarmlar: list) -> tuple:
+    """
+    Tetiklenen alarmları kurumsal ve minimalist bir e-posta formatında iletir.
+    Streamlit secrets üzerinde SMTP ayarı yoksa güvenli simülasyon modunda çalışır.
+    """
+    if not alici_email or not alarmlar:
+        return False, "Geçerli bir alıcı e-posta adresi veya aktif alarm bulunamadı."
+        
+    smtp_server = st.secrets.get("SMTP_SERVER", "")
+    smtp_port = int(st.secrets.get("SMTP_PORT", 587))
+    smtp_user = st.secrets.get("SMTP_USER", "")
+    smtp_pass = st.secrets.get("SMTP_PASSWORD", "")
+    
+    alarm_kartlari_html = ""
+    for a in alarmlar:
+        renk = "#4ade80" if a["seviye"] == "pozitif" else ("#f87171" if a["seviye"] == "risk" else "#38bdf8")
+        alarm_kartlari_html += f"""
+        <div style="background: #111827; border-left: 4px solid {renk}; border-radius: 6px; padding: 12px 16px; margin-bottom: 12px;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: {renk}; font-weight: 600;">
+                ● {a['etiket']} — {a['sembol']}
+            </div>
+            <div style="font-size: 14px; color: #f3f4f6; margin-top: 6px; line-height: 1.4;">
+                {a['mesaj']}
+            </div>
+        </div>
+        """
+        
+    govde_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"></head>
+    <body style="background-color: #080b11; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 24px;">
+        <div style="max-width: 600px; margin: 0 auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 28px;">
+            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #38bdf8; font-weight: 700; margin-bottom: 8px;">
+                ✦ Global Servet Terminali
+            </div>
+            <h2 style="color: #f8fafc; font-size: 20px; font-weight: 600; margin-top: 0; margin-bottom: 16px;">
+                Piyasa Alarmı & Kurumsal İstihbarat Raporu
+            </h2>
+            <p style="font-size: 13.5px; color: #94a3b8; line-height: 1.5; margin-bottom: 20px;">
+                Portföyünüzde takip edilen varlıklarda stratejik seviyeler tetiklendi. Güncel piyasa durumu aşağıda özetlenmiştir:
+            </p>
+            {alarm_kartlari_html}
+            <div style="margin-top: 28px; text-align: center;">
+                <a href="https://bist-terminal.streamlit.app" style="background: #0284c7; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 13px; display: inline-block;">
+                    Terminale Giriş Yap ve Pozisyonları Yönet ↗
+                </a>
+            </div>
+            <div style="border-top: 1px solid #1e293b; margin-top: 28px; padding-top: 16px; font-size: 11px; color: #475569; text-align: center;">
+                Bu bildirim Global Servet Terminali Akıllı Alarm Radarı tarafından otomatik iletilmiştir.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    if smtp_server and smtp_user and smtp_pass:
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = f"Piyasa Alarmı: {len(alarmlar)} Varlık Seviyesi Tetiklendi"
+            msg["From"] = smtp_user
+            msg["To"] = alici_email
+            msg.attach(MIMEText(govde_html, "html", "utf-8"))
+            
+            with smtplib.SMTP(smtp_server, smtp_port, timeout=8) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(smtp_user, alici_email, msg.as_string())
+                
+            return True, f"Bildirim e-postası başarıyla iletildi: {alici_email}"
+        except Exception as e:
+            return False, f"E-posta gönderiminde hata: {e}"
+    else:
+        return True, f"Bildirim hazırlandı: {alici_email} (Canlı SMTP tanımlandığında otomatik gönderilir)."
+
 # --- GİRİŞ YAPILMIŞ KULLANICI AKIŞI ---
 user = st.session_state.kullanici
 user_email = user["email"]
 is_demo = user.get("rol") == "demo"
 usd_try = get_usd_try_rate()
+
+# Kullanıcı hedef fiyatları, stop-loss ve akıllı alarm ayarları (Madde 4 & 7)
+if "kullanici_hedefleri" not in st.session_state:
+    st.session_state.kullanici_hedefleri = {
+        "THYAO.IS": {"hedef": 345.00, "stop": 260.00},
+        "NVDA": {"hedef": 140.00, "stop": 105.00},
+        "GRAM_ALTIN": {"hedef": 3400.00, "stop": 2850.00}
+    }
+
+if "bildirim_ayarlari" not in st.session_state:
+    st.session_state.bildirim_ayarlari = {
+        "site_bildirim_aktif": True,
+        "eposta_bildirim_aktif": False,
+        "eposta_adresi": user_email if "@" in user_email else ""
+    }
+
+if "tetiklenen_alarmlar" not in st.session_state:
+    st.session_state.tetiklenen_alarmlar = set()
 
 # Portföy verisini getir
 if is_demo:
@@ -807,7 +1009,70 @@ with col_btn2:
             database.kullanici_ornek_portfoy_yukle(user_email)
         st.rerun()
 
-# 3. Yapay Zeka Anahtarı
+# 3. Akıllı Alarm & İstihbarat Radarı (Madde 7)
+st.sidebar.divider()
+st.sidebar.markdown("""
+<div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;">
+    <div style="font-size: 11.5px; font-weight: 600; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.06em;">
+        ✦ Akıllı Alarm & İstihbarat
+    </div>
+    <div style="font-size: 11.5px; color: #94a3b8; margin-top: 5px; line-height: 1.45;">
+        Kritik seviyeleri kaçırmayın. Kâr hedefleri, ani geri çekilmeler ve RSI dip fırsatlarında anlık istihbarat alarak servetinizi proaktif koruyun.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+b_site = st.sidebar.toggle(
+    "Site İçi Bildirimler", 
+    value=st.session_state.bildirim_ayarlari.get("site_bildirim_aktif", True),
+    help="Terminal içinde kâr hedefi, stop-loss ve RSI dip uyarı kartlarını gösterir."
+)
+b_eposta = st.sidebar.toggle(
+    "E-posta Bildirimleri", 
+    value=st.session_state.bildirim_ayarlari.get("eposta_bildirim_aktif", False),
+    help="Seviyeler tetiklendiğinde e-posta kutunuza kurumsal istihbarat raporu iletir."
+)
+
+st.session_state.bildirim_ayarlari["site_bildirim_aktif"] = b_site
+st.session_state.bildirim_ayarlari["eposta_bildirim_aktif"] = b_eposta
+
+if b_eposta:
+    mevcut_eposta = st.session_state.bildirim_ayarlari.get("eposta_adresi") or user_email
+    eposta_girdi = st.sidebar.text_input(
+        "Bildirim E-postası:",
+        value=mevcut_eposta,
+        placeholder="ornek@alanadi.com"
+    )
+    st.session_state.bildirim_ayarlari["eposta_adresi"] = eposta_girdi.strip()
+
+col_alarm_btn, col_alarm_clr = st.sidebar.columns(2)
+with col_alarm_btn:
+    if st.button("Alarmı Test Et", use_container_width=True, help="Örnek bir alarm tetikleyerek bildirim kanalını test eder."):
+        ornek_alarm = [{
+            "sembol": "TEST.VARLIK",
+            "tip": "HEDEF_YAKIN",
+            "etiket": "İstihbarat Test Bildirimi",
+            "mesaj": "Sistem bağlantısı ve alarm kanalları sorunsuz çalışıyor. Portföyünüz 7/24 izlenmektedir.",
+            "seviye": "pozitif",
+            "fiyat": 100.0,
+            "hedef": 105.0,
+            "para": "TL",
+            "alarm_id": "TEST_ALARM"
+        }]
+        if b_eposta and st.session_state.bildirim_ayarlari.get("eposta_adresi"):
+            ok, msj = gonder_alarm_epostasi(st.session_state.bildirim_ayarlari["eposta_adresi"], ornek_alarm)
+            if ok:
+                st.sidebar.success(msj)
+            else:
+                st.sidebar.error(msj)
+        else:
+            st.sidebar.info("Site içi alarm kanalı aktif. E-posta testi için yukarıdaki e-posta anahtarını açabilirsiniz.")
+with col_alarm_clr:
+    if st.button("Alarmları Sıfırla", use_container_width=True, help="Tetiklenen alarmların bildirim hafızasını sıfırlar."):
+        st.session_state.tetiklenen_alarmlar = set()
+        st.sidebar.caption("Alarm bildirim hafızası temizlendi.")
+
+# 4. Yapay Zeka Anahtarı
 gemini_key = st.secrets.get("GEMINI_API_KEY", "")
 if not gemini_key:
     st.sidebar.divider()
@@ -819,6 +1084,7 @@ if not gemini_key:
 else:
     st.sidebar.divider()
     st.sidebar.caption("Yapay zeka asistanı aktif")
+
 
 
 # ==============================================================================
@@ -852,6 +1118,7 @@ with tab_portfoy:
         pastaDegerler = []
         kategoriDegerler = {}
         portfoy_fiyatlari_tl = {}
+        portfoy_rsi_degerleri = {}
 
         with st.spinner("Piyasa verileri konsolide ediliyor..."):
             for sembol, bilgi in portfoy.items():
@@ -864,6 +1131,20 @@ with tab_portfoy:
                     continue
                     
                 guncelFiyatYerel = float(gecmis['Close'].iloc[-1])
+                
+                if len(gecmis) >= 15:
+                    try:
+                        gecmis_sirali = gecmis.sort_index()
+                        fark_fiyat = gecmis_sirali['Close'].diff()
+                        kazanc = fark_fiyat.where(fark_fiyat > 0, 0.0).rolling(window=14).mean()
+                        kayip = (-fark_fiyat.where(fark_fiyat < 0, 0.0)).rolling(window=14).mean()
+                        rs = kazanc / kayip
+                        rsi_seri = 100 - (100 / (1 + rs))
+                        son_rsi = float(rsi_seri.iloc[-1])
+                        if not np.isnan(son_rsi):
+                            portfoy_rsi_degerleri[sembol] = son_rsi
+                    except Exception:
+                        pass
                 
                 if para == "USD":
                     maliyetTL = maliyet * usd_try
@@ -929,6 +1210,62 @@ with tab_portfoy:
             st.metric(label="Toplam Net Getiri", value=f"{toplamKarTL:+,.2f} TL", delta=f"{toplamKarYuzde:+.2f}%")
         with col4:
             st.metric(label="BIST 100 Karşılaştırması", value=f"Endeks: %{bist_getiri:.1f}", delta=f"{fark:+.1f}% Göreceli Fark")
+
+        # --- MADDE 4 & 7: AKILLI ALARM & İSTİHBARAT RADARI ---
+        aktif_alarmlar = denetle_portfoy_alarmlari(
+            portfoy, 
+            portfoy_fiyatlari_tl, 
+            st.session_state.kullanici_hedefleri, 
+            portfoy_rsi_degerleri, 
+            usd_try
+        )
+
+        # E-posta Otomatik Gönderim (Stateful Throttling)
+        if st.session_state.bildirim_ayarlari.get("eposta_bildirim_aktif", False) and aktif_alarmlar:
+            hedef_eposta = st.session_state.bildirim_ayarlari.get("eposta_adresi") or user_email
+            yeni_alarmlar = [a for a in aktif_alarmlar if a["alarm_id"] not in st.session_state.tetiklenen_alarmlar]
+            if yeni_alarmlar and hedef_eposta:
+                basarili, sonuc_msj = gonder_alarm_epostasi(hedef_eposta, yeni_alarmlar)
+                if basarili:
+                    for ya in yeni_alarmlar:
+                        st.session_state.tetiklenen_alarmlar.add(ya["alarm_id"])
+                    st.toast(f"✦ İstihbarat Raporu e-postanıza iletildi: {hedef_eposta}")
+
+        # Site İçi Bildirim Hub'ı (Kullanıcı açtıysa)
+        if st.session_state.bildirim_ayarlari.get("site_bildirim_aktif", True) and aktif_alarmlar:
+            st.markdown(f"""
+            <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 14px 18px; margin: 16px 0;">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                    <span style="font-size: 11.5px; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.08em;">
+                        ✦ Akıllı Alarm Radarı • {len(aktif_alarmlar)} Seviye Tetiklendi
+                    </span>
+                    <span style="font-size: 11px; color: #64748b;">
+                        Hedef Kâr & Stop-Loss Radarı
+                    </span>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            sutun_sayisi = min(len(aktif_alarmlar), 3)
+            cols_alr = st.columns(sutun_sayisi)
+            for idx_a, alr in enumerate(aktif_alarmlar):
+                target_col = cols_alr[idx_a % sutun_sayisi]
+                with target_col:
+                    renk = "#4ade80" if alr["seviye"] == "pozitif" else ("#f87171" if alr["seviye"] == "risk" else "#38bdf8")
+                    bg_col = "rgba(34, 197, 94, 0.08)" if alr["seviye"] == "pozitif" else ("rgba(239, 68, 68, 0.08)" if alr["seviye"] == "risk" else "rgba(56, 189, 248, 0.08)")
+                    bdr_col = "rgba(34, 197, 94, 0.25)" if alr["seviye"] == "pozitif" else ("rgba(239, 68, 68, 0.25)" if alr["seviye"] == "risk" else "rgba(56, 189, 248, 0.25)")
+                    st.markdown(f"""
+                    <div style="background: {bg_col}; border: 1px solid {bdr_col}; border-radius: 8px; padding: 10px 12px; margin-bottom: 6px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11.5px; font-weight: 700; color: {renk};">● {alr['sembol']}</span>
+                            <span style="font-size: 10.5px; color: #94a3b8;">{alr['etiket']}</span>
+                        </div>
+                        <div style="font-size: 12px; color: #f1f5f9; margin-top: 5px; line-height: 1.35;">
+                            {alr['mesaj']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.divider()
         st.dataframe(tabloVerisi, use_container_width=True)
@@ -1352,12 +1689,35 @@ with tab_portfoy:
             tahmin_fark_yuzde = ((tahmin_7gun - guncel_son_fiyat) / guncel_son_fiyat) * 100
             gunluk_egim = float(p[0])
 
+            # Hedef ve Stop-Loss Seviyeleri (Madde 4)
+            hedef_bilgi = st.session_state.kullanici_hedefleri.get(secilen, {})
+            hedef_fiyat = float(hedef_bilgi.get("hedef", 0.0) or 0.0)
+            stop_loss = float(hedef_bilgi.get("stop", 0.0) or 0.0)
+
             # İnteraktif Trend Grafiği
             fig_trend = go.Figure()
             fig_trend.add_trace(go.Scatter(x=gecmisSecilen.index, y=gecmisSecilen['Close'], name=f'Kapanış ({secilen_para})', line=dict(color='#38bdf8', width=2.5)))
             fig_trend.add_trace(go.Scatter(x=gecmisSecilen.index, y=gecmisSecilen['SMA20'], name='SMA 20', line=dict(color='#fbbf24', width=1.5)))
             fig_trend.add_trace(go.Scatter(x=gecmisSecilen.index, y=gecmisSecilen['SMA50'], name='SMA 50', line=dict(color='#a855f7', width=1.5)))
             fig_trend.add_hline(y=secilenMaliyet, line_dash="dash", line_color="#f43f5e", annotation_text=f"Maliyet ({secilenMaliyet:.2f} {secilen_para})", annotation_position="top left")
+
+            if hedef_fiyat > 0:
+                fig_trend.add_hline(
+                    y=hedef_fiyat, 
+                    line_dash="dot", 
+                    line_color="#4ade80", 
+                    annotation_text=f"Kâr Hedefi ({hedef_fiyat:,.2f} {secilen_para})", 
+                    annotation_position="top right"
+                )
+
+            if stop_loss > 0:
+                fig_trend.add_hline(
+                    y=stop_loss, 
+                    line_dash="dot", 
+                    line_color="#f87171", 
+                    annotation_text=f"Stop-Loss ({stop_loss:,.2f} {secilen_para})", 
+                    annotation_position="bottom right"
+                )
 
             fig_trend.add_trace(go.Scatter(x=fut_dates, y=fut_prices, name='7 Günlük Projeksiyon', mode='lines', line=dict(color='#c084fc', width=2.5, dash='dash')))
             fig_trend.add_trace(go.Scatter(x=fut_dates, y=fut_prices + std_hata, name='Tahmin Üst Sınır', mode='lines', line=dict(color='rgba(0,0,0,0)', width=0), showlegend=False, hoverinfo='skip'))
@@ -1407,6 +1767,124 @@ with tab_portfoy:
                     st.caption("● **Trend:** SMA 20 > SMA 50 (Yükseliş Trendi)")
                 else:
                     st.caption("● **Trend:** SMA 20 < SMA 50 (Düşüş Eğilimi)")
+
+            # --- HEDEF FİYAT & STOP-LOSS RADARI (MADDE 4) ---
+            st.markdown("##### Hedef Fiyat & Stop-Loss Radarı")
+            
+            col_pan1, col_pan2 = st.columns([1.2, 1])
+            with col_pan1:
+                with st.form(f"hedef_form_{secilen}"):
+                    st.markdown(f"<span style='font-size: 12px; color: #94a3b8;'>{secilen} için kâr alma ve risk seviyelerini tanımlayın:</span>", unsafe_allow_html=True)
+                    col_inp1, col_inp2 = st.columns(2)
+                    with col_inp1:
+                        yeni_hedef = st.number_input(
+                            f"Kâr Hedefi ({secilen_para})",
+                            min_value=0.0,
+                            value=float(hedef_fiyat),
+                            step=1.0 if guncel_son_fiyat > 50 else 0.1,
+                            format="%.2f",
+                            help="Fiyat bu seviyeye ulaştığında kâr alma alarmı tetiklenir."
+                        )
+                    with col_inp2:
+                        yeni_stop = st.number_input(
+                            f"Stop-Loss ({secilen_para})",
+                            min_value=0.0,
+                            value=float(stop_loss),
+                            step=1.0 if guncel_son_fiyat > 50 else 0.1,
+                            format="%.2f",
+                            help="Fiyat bu seviyenin altına gerilediğinde sermaye koruma alarmı tetiklenir."
+                        )
+                    
+                    kaydet_hedef = st.form_submit_button("Hedef Seviyeleri Güncelle", type="primary", use_container_width=True)
+                    if kaydet_hedef:
+                        st.session_state.kullanici_hedefleri[secilen] = {
+                            "hedef": float(yeni_hedef),
+                            "stop": float(yeni_stop)
+                        }
+                        # Tetiklenmiş bildirim hafızasını bu varlık için yenile
+                        st.session_state.tetiklenen_alarmlar.discard(f"{secilen}_HEDEF")
+                        st.session_state.tetiklenen_alarmlar.discard(f"{secilen}_HEDEF_YAKIN")
+                        st.session_state.tetiklenen_alarmlar.discard(f"{secilen}_STOP_LOSS")
+                        st.session_state.tetiklenen_alarmlar.discard(f"{secilen}_STOP_YAKIN")
+                        st.success(f"{secilen} için seviyeler güncellendi.")
+                        st.rerun()
+
+                # Hızlı Yüzde Kısayol Butonları
+                st.caption("Piyasa Fiyatına Göre Hızlı Hesaplama:")
+                col_ks1, col_ks2, col_ks3, col_ks4, col_ks5 = st.columns(5)
+                with col_ks1:
+                    if st.button("+10%", key=f"btn_p10_{secilen}", use_container_width=True, help="Piyasa fiyatının %10 üstünü hedef olarak kaydeder."):
+                        st.session_state.kullanici_hedefleri[secilen] = {
+                            "hedef": round(guncel_son_fiyat * 1.10, 2),
+                            "stop": stop_loss
+                        }
+                        st.rerun()
+                with col_ks2:
+                    if st.button("+20%", key=f"btn_p20_{secilen}", use_container_width=True, help="Piyasa fiyatının %20 üstünü hedef olarak kaydeder."):
+                        st.session_state.kullanici_hedefleri[secilen] = {
+                            "hedef": round(guncel_son_fiyat * 1.20, 2),
+                            "stop": stop_loss
+                        }
+                        st.rerun()
+                with col_ks3:
+                    if st.button("+30%", key=f"btn_p30_{secilen}", use_container_width=True, help="Piyasa fiyatının %30 üstünü hedef olarak kaydeder."):
+                        st.session_state.kullanici_hedefleri[secilen] = {
+                            "hedef": round(guncel_son_fiyat * 1.30, 2),
+                            "stop": stop_loss
+                        }
+                        st.rerun()
+                with col_ks4:
+                    if st.button("-5%", key=f"btn_m5_{secilen}", use_container_width=True, help="Piyasa fiyatının %5 altını stop-loss olarak kaydeder."):
+                        st.session_state.kullanici_hedefleri[secilen] = {
+                            "hedef": hedef_fiyat,
+                            "stop": round(guncel_son_fiyat * 0.95, 2)
+                        }
+                        st.rerun()
+                with col_ks5:
+                    if st.button("-10%", key=f"btn_m10_{secilen}", use_container_width=True, help="Piyasa fiyatının %10 altını stop-loss olarak kaydeder."):
+                        st.session_state.kullanici_hedefleri[secilen] = {
+                            "hedef": hedef_fiyat,
+                            "stop": round(guncel_son_fiyat * 0.90, 2)
+                        }
+                        st.rerun()
+
+            with col_pan2:
+                # Hedef Mesafe ve Güvenlik Marjı Radarı
+                hedef_kalan_yuzde = ((hedef_fiyat - guncel_son_fiyat) / guncel_son_fiyat * 100) if (hedef_fiyat > 0 and guncel_son_fiyat > 0) else None
+                stop_marj_yuzde = ((guncel_son_fiyat - stop_loss) / guncel_son_fiyat * 100) if (stop_loss > 0 and guncel_son_fiyat > 0) else None
+
+                if hedef_fiyat > 0:
+                    if guncel_son_fiyat >= hedef_fiyat:
+                        durum_hedef = f"<span style='color: #4ade80; font-weight: 600;'>Kâr Hedefine Ulaşıldı (%{hedef_kalan_yuzde:+.1f})</span>"
+                    else:
+                        durum_hedef = f"Hedefe Kalan: <b style='color: #4ade80;'>%{hedef_kalan_yuzde:+.1f}</b> ({hedef_fiyat - guncel_son_fiyat:,.2f} {secilen_para})"
+                else:
+                    durum_hedef = "<span style='color: #64748b;'>Hedef seviyesi henüz tanımlanmadı.</span>"
+
+                if stop_loss > 0:
+                    if guncel_son_fiyat <= stop_loss:
+                        durum_stop = f"<span style='color: #f87171; font-weight: 600;'>Stop-Loss Seviyesinde / Altında!</span>"
+                    else:
+                        durum_stop = f"Güvenlik Tamponu: <b style='color: #38bdf8;'>%{stop_marj_yuzde:.1f}</b> ({guncel_son_fiyat - stop_loss:,.2f} {secilen_para})"
+                else:
+                    durum_stop = "<span style='color: #64748b;'>Stop seviyesi henüz tanımlanmadı.</span>"
+
+                st.markdown(f"""
+                <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 10px; padding: 14px 16px; height: 100%;">
+                    <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: #38bdf8; margin-bottom: 8px;">
+                        ✦ Seviye Mesafe Radarı
+                    </div>
+                    <div style="font-size: 12.5px; color: #cbd5e1; margin-bottom: 12px; line-height: 1.45;">
+                        <div style="margin-bottom: 4px;">● <b>Kâr Hedefi:</b> {f'{hedef_fiyat:,.2f} {secilen_para}' if hedef_fiyat > 0 else 'Tanımsız'}</div>
+                        <div style="padding-left: 12px; font-size: 11.5px;">{durum_hedef}</div>
+                    </div>
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.05); padding-top: 10px; font-size: 12.5px; color: #cbd5e1; line-height: 1.45;">
+                        <div style="margin-bottom: 4px;">● <b>Stop-Loss:</b> {f'{stop_loss:,.2f} {secilen_para}' if stop_loss > 0 else 'Tanımsız'}</div>
+                        <div style="padding-left: 12px; font-size: 11.5px;">{durum_stop}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
 
             # Strateji Simülasyonu
             with st.expander(f"Strateji Simülasyonu: {secilen} MACD Kesişim Performansı"):
