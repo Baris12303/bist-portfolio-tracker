@@ -8,7 +8,18 @@ import numpy as np
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
+import requests
 import database
+
+def get_yf_session():
+    """Yahoo Finance sorguları için tarayıcı kimlikli güvenli oturum döndürür."""
+    s = requests.Session()
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    })
+    return s
 
 # Sayfa Başlığı ve Geniş Ekran Düzeni
 st.set_page_config(page_title="Global Finans & Servet Terminali", page_icon="◆", layout="wide")
@@ -131,10 +142,19 @@ div[data-testid="stMetricLabel"] {
     color: #64748b !important;
 }
 div[data-testid="stMetricValue"] {
-    font-size: 24px !important;
+    font-size: 21px !important;
     font-weight: 600 !important;
     color: #f1f5f9 !important;
-    letter-spacing: -0.02em !important;
+    letter-spacing: -0.01em !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    transition: all 0.2s ease !important;
+}
+div[data-testid="stMetric"]:hover div[data-testid="stMetricValue"] {
+    white-space: normal !important;
+    overflow: visible !important;
+    word-break: break-word !important;
 }
 
 /* Minimalist Haber Kartları */
@@ -337,7 +357,8 @@ def get_company_fundamentals(symbol: str) -> dict:
     if symbol == "GRAM_ALTIN":
         return {}
     try:
-        t = yf.Ticker(symbol)
+        session = get_yf_session()
+        t = yf.Ticker(symbol, session=session)
         info = t.info if hasattr(t, 'info') and isinstance(t.info, dict) else {}
         fi = getattr(t, 'fast_info', None)
         
@@ -355,11 +376,23 @@ def get_company_fundamentals(symbol: str) -> dict:
             h52 = getattr(fi, 'year_high', None) or (fi.get('yearHigh') if hasattr(fi, 'get') else None)
         if not l52 and fi:
             l52 = getattr(fi, 'year_low', None) or (fi.get('yearLow') if hasattr(fi, 'get') else None)
+
+        if not info and market_cap is None:
+            raise ValueError(f"'{symbol}' verisi alınamadı.")
+
+        sec = info.get("sector")
+        sec_str = sec if sec and str(sec).lower() != "none" else "Piyasa Şirketi"
+
+        ind = info.get("industry")
+        ind_str = ind if ind and str(ind).lower() != "none" else "Sanayi & Hizmet"
+
+        lname = info.get("longName")
+        lname_str = lname if lname and str(lname).lower() != "none" else symbol
             
         return {
-            "longName": info.get("longName", symbol),
-            "sector": info.get("sector"),
-            "industry": info.get("industry"),
+            "longName": lname_str,
+            "sector": sec_str,
+            "industry": ind_str,
             "marketCap": market_cap,
             "trailingPE": pe,
             "priceToBook": pb,
@@ -367,8 +400,8 @@ def get_company_fundamentals(symbol: str) -> dict:
             "fiftyTwoWeekHigh": h52,
             "fiftyTwoWeekLow": l52,
         }
-    except Exception:
-        return {}
+    except Exception as e:
+        raise e
 
 # --- GİRİŞ YAPILMIŞ KULLANICI AKIŞI ---
 user = st.session_state.kullanici
@@ -843,7 +876,10 @@ with tab_kesif:
     with st.spinner(f"Veriler aktarılıyor: {aktif_kesif_sembol}..."):
         k_kat, k_para, k_rozet = varlik_sinifi_belirle(aktif_kesif_sembol)
         k_gecmis = varlik_gecmisi_getir(aktif_kesif_sembol, period="1y")
-        k_info = get_company_fundamentals(aktif_kesif_sembol)
+        try:
+            k_info = get_company_fundamentals(aktif_kesif_sembol)
+        except Exception:
+            k_info = {}
 
     if k_gecmis.empty:
         st.error(f"'{aktif_kesif_sembol}' için veri bulunamadı. Lütfen sembol kodunu kontrol edin.")
@@ -852,9 +888,13 @@ with tab_kesif:
         onceki_kesif_fiyat = float(k_gecmis['Close'].iloc[-2]) if len(k_gecmis) > 1 else guncel_kesif_fiyat
         gunluk_degisim_yuzde = ((guncel_kesif_fiyat - onceki_kesif_fiyat) / onceki_kesif_fiyat) * 100
 
-        sirket_uzun_adi = k_info.get("longName", aktif_kesif_sembol)
-        sektor = k_info.get("sector", k_kat)
-        endustri = k_info.get("industry", "Piyasa Varlığı")
+        sirket_uzun_adi = k_info.get("longName") or aktif_kesif_sembol
+        sektor = k_info.get("sector")
+        if not sektor or str(sektor).lower() == "none":
+            sektor = k_kat
+        endustri = k_info.get("industry")
+        if not endustri or str(endustri).lower() == "none":
+            endustri = "Piyasa Varlığı"
 
         col_header1, col_header2 = st.columns([2.5, 1.5])
         with col_header1:
@@ -895,8 +935,12 @@ with tab_kesif:
         if (not l_52 or pd.isna(l_52)) and not k_gecmis.empty:
             l_52 = float(k_gecmis['Close'].min())
             
-        h52_str = f"{h_52:.2f} {k_para}" if (h_52 and not pd.isna(h_52)) else "—"
-        l52_str = f"{l_52:.2f} {k_para}" if (l_52 and not pd.isna(l_52)) else "—"
+        if h_52 and l_52 and not pd.isna(h_52) and not pd.isna(l_52):
+            aralik_52_str = f"{l_52:,.2f} - {h_52:,.2f} {k_para}"
+            aralik_52_help = f"52 Haftalık En Düşük: {l_52:,.2f} {k_para} | En Yüksek: {h_52:,.2f} {k_para}"
+        else:
+            aralik_52_str = "—"
+            aralik_52_help = "52 haftalık fiyat aralığı hesaplanamadı."
 
         st.markdown("##### Temel Analiz & Bilanço Göstergeleri")
         c_val1, c_val2, c_val3, c_val4, c_val5 = st.columns(5)
@@ -909,7 +953,7 @@ with tab_kesif:
         with c_val4:
             st.metric("Temettü Verimi", div_str)
         with c_val5:
-            st.metric("52 Haftalık Aralık", f"{l52_str} - {h52_str}")
+            st.metric("52 Haftalık Aralık", aralik_52_str, help=aralik_52_help)
 
         # İnteraktif 1 Yıllık Grafik
         fig_kesif_trend = go.Figure()
