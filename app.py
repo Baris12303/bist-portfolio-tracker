@@ -403,6 +403,60 @@ def get_company_fundamentals(symbol: str) -> dict:
     except Exception as e:
         raise e
 
+@st.cache_data(ttl=7200)
+def get_ai_news_sentiment(symbol: str, headlines_tuple: tuple, api_key: str) -> dict:
+    """Haber başlıklarını Gemini ile analiz edip piyasa duygu skorunu 2 saat önbelleğe alır."""
+    if not api_key or not headlines_tuple:
+        return {}
+    try:
+        from google import genai
+        import json, re, datetime
+        client = genai.Client(api_key=api_key)
+        headlines_text = "\n".join([f"- {h}" for h in headlines_tuple[:5]])
+        prompt = f"""
+Sen Wall Street ve Borsa İstanbul konusunda uzman kurumsal bir Finansal İstihbarat Analistisin.
+Varlık: {symbol}
+Aşağıdaki son canlı haber başlıklarını analiz et ve piyasanın algısını değerlendir:
+{headlines_text}
+
+LÜTFEN SADECE VE SADECE aşağıdaki JSON formatında tek bir JSON objesi üret:
+{{
+  "skor": "Boğa (Pozitif)" veya "Nötr (Dengeli)" veya "Ayı (Negatif)",
+  "yuzde": 75,
+  "ozet": "2 cümlelik net, kurumsal piyasa algısı ve haber özeti."
+}}
+JSON dışında hiçbir ek metin veya açıklama yazma.
+"""
+        modeller = ["gemini-2.5-flash", "gemini-1.5-flash"]
+        try:
+            live_models = [m.name for m in client.models.list() if "gemini" in m.name.lower()]
+            if live_models:
+                modeller = live_models
+        except Exception:
+            pass
+
+        raw_text = ""
+        for m_name in modeller:
+            try:
+                res = client.models.generate_content(model=m_name, contents=prompt)
+                if res and res.text:
+                    raw_text = res.text.strip()
+                    break
+            except Exception:
+                continue
+
+        if not raw_text:
+            return {}
+
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            parsed = json.loads(match.group(0))
+            parsed["zaman"] = datetime.datetime.now().strftime("%H:%M")
+            return parsed
+        return {}
+    except Exception:
+        return {}
+
 # --- GİRİŞ YAPILMIŞ KULLANICI AKIŞI ---
 user = st.session_state.kullanici
 user_email = user["email"]
@@ -646,7 +700,7 @@ with tab_portfoy:
         st.dataframe(tabloVerisi, use_container_width=True)
 
         st.divider()
-        tab_pasta1, tab_pasta2 = st.tabs(["Varlık Sınıfı Dağılımı", "Pozisyon Bazında Dağılım"])
+        tab_pasta1, tab_pasta2, tab_temettu = st.tabs(["Varlık Sınıfı Dağılımı", "Pozisyon Bazında Dağılım", "Temettü & Pasif Gelir Radarı"])
         
         luxury_colors = ['#38bdf8', '#10b981', '#f59e0b', '#a855f7', '#ec4899', '#64748b']
         
@@ -661,6 +715,74 @@ with tab_portfoy:
             fig_pasta.update_traces(textposition='inside', textinfo='percent+label', hovertemplate="<b>%{label}</b><br>Toplam: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>")
             fig_pasta.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='#94a3b8'), margin=dict(t=10, b=10, l=10, r=10), height=340)
             st.plotly_chart(fig_pasta, use_container_width=True)
+
+        with tab_temettu:
+            st.markdown("##### Portföy Temettü & Pasif Gelir Projeksiyonu")
+            temettu_satirlari = []
+            toplam_yillik_temettu = 0.0
+
+            for sembol, veri in portfoy.items():
+                adet = float(veri.get("adet", 1.0))
+                try:
+                    fund = get_company_fundamentals(sembol)
+                except Exception:
+                    fund = {}
+                div_yield = fund.get("dividendYield")
+                
+                fiyat_tl = 0.0
+                try:
+                    df_h = varlik_gecmisi_getir(sembol, period="5d")
+                    if not df_h.empty:
+                        son_p = float(df_h['Close'].iloc[-1])
+                        _, p_para, _ = varlik_sinifi_belirle(sembol)
+                        fiyat_tl = son_p * usd_try if p_para == "USD" else son_p
+                except Exception:
+                    fiyat_tl = float(veri.get("maliyet", 0.0))
+
+                if div_yield and not pd.isna(div_yield) and div_yield > 0:
+                    div_pct = (div_yield / 100) if div_yield > 1 else div_yield
+                    hisse_yillik = (adet * fiyat_tl) * div_pct
+                    toplam_yillik_temettu += hisse_yillik
+                    temettu_satirlari.append({
+                        "Varlık": sembol,
+                        "Adet": f"{adet:,.2f}",
+                        "Fiyat": f"{fiyat_tl:,.2f} TL",
+                        "Temettü Verimi": f"%{div_pct * 100:.2f}",
+                        "Yıllık Tahmini Gelir": f"{hisse_yillik:,.2f} TL"
+                    })
+
+            col_t1, col_t2, col_t3 = st.columns(3)
+            with col_t1:
+                st.metric(
+                    label="Yıllık Tahmini Pasif Gelir",
+                    value=f"{toplam_yillik_temettu:,.2f} TL",
+                    help="Portföyünüzdeki hisselerin son dağıtım oranlarına göre yıllık nakit akışı tahmini."
+                )
+            with col_t2:
+                aylik_nakit = toplam_yillik_temettu / 12
+                st.metric(
+                    label="Aylık Ortalama Nakit Akışı",
+                    value=f"{aylik_nakit:,.2f} TL / Ay",
+                    help="Yıllık temettü gelirinin 12 aya bölünmüş eşdeğer aylık pasif getirisi."
+                )
+            with col_t3:
+                portfoy_verim = (toplam_yillik_temettu / toplamGuncelDegerTL * 100) if toplamGuncelDegerTL > 0 else 0.0
+                st.metric(
+                    label="Portföy Temettü Verimi",
+                    value=f"%{portfoy_verim:.2f}",
+                    help="Toplam konsolide portföy büyüklüğünüze oranla temettü verimi."
+                )
+
+            if temettu_satirlari:
+                st.dataframe(pd.DataFrame(temettu_satirlari), use_container_width=True)
+            else:
+                st.info("Portföyünüzde şu an temettü dağıtan bir hisse senedi bulunmuyor veya çarpanları sıfır görünüyor.")
+
+            # Temettü Emekliliği Hedef İlerlemesi
+            hedef_aylik = 17002.0  # Asgari ücret referansı
+            ilerleme = min(aylik_nakit / hedef_aylik, 1.0) if hedef_aylik > 0 else 0.0
+            st.progress(ilerleme)
+            st.caption(f"✦ **Temettü Emekliliği Radarı:** 17.000 TL/Ay (Asgari Ücret Eşdeğeri) Pasif Gelir Hedefinizin **%{ilerleme*100:.1f}** kadarı karşılanıyor.")
 
         # Öne Çıkan Getiriler
         if enIyiVarlik and enKotuVarlik:
@@ -794,6 +916,56 @@ with tab_portfoy:
                         st.metric("MACD Sinyal Stratejisi", f"%{getiri_strat:.2f}", delta=f"{fark_strat:+.2f}%")
                 except Exception:
                     st.caption("Geçmiş veri hesaplanamadı.")
+
+            # Seçilen Varlık Canlı Haberleri & AI Algı Radarı
+            h_arama = secilen.replace(".IS", "").replace("-USD", "")
+            portfoy_haberler = get_live_news(h_arama, count=2)
+            if portfoy_haberler:
+                st.markdown(f"###### {secilen} — Canlı Haber Akışı & Piyasa Algısı")
+                if gemini_key:
+                    h_tuple = tuple(h['headline'] for h in portfoy_haberler)
+                    s_data = get_ai_news_sentiment(secilen, h_tuple, gemini_key)
+                    if s_data:
+                        sk = s_data.get("skor", "Nötr (Dengeli)")
+                        yz = s_data.get("yuzde", 50)
+                        oz = s_data.get("ozet", "")
+                        zm = s_data.get("zaman", "")
+                        
+                        is_p = any(w in sk.lower() for w in ["boğa", "pozitif", "yükseliş"])
+                        is_n = any(w in sk.lower() for w in ["ayı", "negatif", "düşüş"])
+                        bg = "rgba(34, 197, 94, 0.12)" if is_p else ("rgba(239, 68, 68, 0.12)" if is_n else "rgba(234, 179, 8, 0.12)")
+                        clr = "#4ade80" if is_p else ("#f87171" if is_n else "#facc15")
+                        bdr = "rgba(34, 197, 94, 0.25)" if is_p else ("rgba(239, 68, 68, 0.25)" if is_n else "rgba(234, 179, 8, 0.25)")
+
+                        st.markdown(f"""
+                        <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                                <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: #64748b;">✦ AI Algı Radarı</span>
+                                <span style="background: {bg}; color: {clr}; border: 1px solid {bdr}; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 16px;">● {sk} (%{yz})</span>
+                            </div>
+                            <div style="font-size: 13px; color: #e2e8f0; line-height: 1.4; margin-bottom: 6px;">
+                                {oz}
+                            </div>
+                            <div style="font-size: 10.5px; color: #475569;">
+                                ✦ Yapay Zeka Analizi • Güncelleme: {zm} (2 Saatlik Kurumsal Döngü)
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                col_ph1, col_ph2 = st.columns(2)
+                for i_h, hab_item in enumerate(portfoy_haberler):
+                    col_target = col_ph1 if i_h == 0 else col_ph2
+                    with col_target:
+                        st.markdown(f"""
+                        <div class="news-card" style="padding: 12px 14px; margin-bottom: 8px;">
+                            <span style="color: #38bdf8; font-size: 10.5px; font-weight: 600;">{hab_item['source']}</span>
+                            <span style="color: #475569; font-size: 10.5px; float: right;">{hab_item['date']}</span>
+                            <div style="font-weight: 500; font-size: 13px; margin-top: 6px; color: #f1f5f9; line-height: 1.3;">{hab_item['headline']}</div>
+                            <div style="margin-top: 8px;">
+                                <a href="{hab_item['link']}" target="_blank" style="color: #64748b; font-size: 11px; text-decoration: none;">Haberi Oku ↗</a>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
             # Gemini Analiz Kartı
             st.divider()
@@ -988,6 +1160,38 @@ with tab_kesif:
         if not haberler:
             st.caption("Seçilen varlık hakkında güncel haber akışı bulunamadı.")
         else:
+            if gemini_key:
+                headlines_tuple = tuple(h['headline'] for h in haberler)
+                sentiment_data = get_ai_news_sentiment(aktif_kesif_sembol, headlines_tuple, gemini_key)
+                if sentiment_data:
+                    skor = sentiment_data.get("skor", "Nötr (Dengeli)")
+                    yuzde = sentiment_data.get("yuzde", 50)
+                    ozet = sentiment_data.get("ozet", "")
+                    zaman = sentiment_data.get("zaman", "")
+                    
+                    is_pos = any(w in skor.lower() for w in ["boğa", "pozitif", "yükseliş"])
+                    is_neg = any(w in skor.lower() for w in ["ayı", "negatif", "düşüş"])
+                    badge_bg = "rgba(34, 197, 94, 0.12)" if is_pos else ("rgba(239, 68, 68, 0.12)" if is_neg else "rgba(234, 179, 8, 0.12)")
+                    badge_color = "#4ade80" if is_pos else ("#f87171" if is_neg else "#facc15")
+                    badge_border = "rgba(34, 197, 94, 0.25)" if is_pos else ("rgba(239, 68, 68, 0.25)" if is_neg else "rgba(234, 179, 8, 0.25)")
+
+                    st.markdown(f"""
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; color: #64748b;">✦ AI Piyasa Algı Radarı</span>
+                            <span style="background: {badge_bg}; color: {badge_color}; border: 1px solid {badge_border}; font-size: 11.5px; font-weight: 600; padding: 2px 10px; border-radius: 20px;">● {skor} (%{yuzde})</span>
+                        </div>
+                        <div style="font-size: 13.5px; color: #e2e8f0; line-height: 1.5; font-weight: 400; margin-bottom: 8px;">
+                            {ozet}
+                        </div>
+                        <div style="font-size: 11px; color: #475569; letter-spacing: 0.01em;">
+                            ✦ Yapay Zeka İstihbaratı • Güncelleme: {zaman} (2 Saatlik Kurumsal Döngü)
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.caption("✦ Yapay zeka piyasa algı radarı için sol menüden Gemini API anahtarınızı tanımlayabilirsiniz.")
+
             col_hab1, col_hab2 = st.columns(2)
             for idx, hab in enumerate(haberler):
                 target_col = col_hab1 if idx % 2 == 0 else col_hab2
