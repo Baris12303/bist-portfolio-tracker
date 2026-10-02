@@ -185,24 +185,25 @@ st.sidebar.divider()
 st.sidebar.header("⚙️ Varlık Yönetimi")
 
 # 1. Çoklu Varlık Ekleme / Güncelleme Formu
+st.sidebar.subheader("➕ Varlık Ekle / Güncelle")
+varlik_turu = st.sidebar.selectbox(
+    "Varlık Türü Seçin:",
+    ["🇹🇷 BIST Hissesi", "🇺🇸 ABD Hissesi (NASDAQ/NYSE)", "🪙 Kripto Para", "🥇 Altın & Emtia"],
+    key="secilen_varlik_turu"
+)
+
 with st.sidebar.form("varlik_ekle_formu"):
-    st.subheader("➕ Varlık Ekle / Güncelle")
-    varlik_turu = st.selectbox(
-        "Varlık Türü:",
-        ["🇹🇷 BIST Hissesi", "🇺🇸 ABD Hissesi (NASDAQ/NYSE)", "🪙 Kripto Para", "🥇 Altın & Emtia"]
-    )
-    
     if "BIST" in varlik_turu:
-        yeni_sembol = st.text_input("Hisse Sembolü (örn: THYAO, FROTO, ASELS)").upper().strip()
+        yeni_sembol = st.text_input("Hisse Sembolü (BIST)", placeholder="örn: THYAO, FROTO, ASELS").upper().strip()
         para_birimi = "TL"
     elif "ABD" in varlik_turu:
-        yeni_sembol = st.text_input("ABD Sembolü (örn: NVDA, AAPL, TSLA, MSFT)").upper().strip()
+        yeni_sembol = st.text_input("Hisse Kodu (ABD)", placeholder="örn: AAPL, NVDA, TSLA, MSFT").upper().strip()
         para_birimi = "$ USD"
     elif "Kripto" in varlik_turu:
-        yeni_sembol = st.text_input("Kripto Kodu (örn: BTC, ETH, SOL, DOGE)").upper().strip()
+        yeni_sembol = st.text_input("Kripto Kodu", placeholder="örn: BTC, ETH, SOL, DOGE").upper().strip()
         para_birimi = "$ USD"
     else:
-        emtia_secim = st.selectbox("Emtia / Maden:", ["Gram Altın (TL)", "Ons Altın ($ GC=F)", "Gümüş ($ SI=F)"])
+        emtia_secim = st.selectbox("Emtia / Maden Seçin:", ["Gram Altın (TL)", "Ons Altın ($ GC=F)", "Gümüş ($ SI=F)"])
         if "Gram Altın" in emtia_secim:
             yeni_sembol = "GRAM_ALTIN"
             para_birimi = "TL"
@@ -546,7 +547,7 @@ fig_trend.add_trace(go.Scatter(
     x=fut_dates, 
     y=fut_prices, 
     name='🔮 7 Günlük ML Tahmini',
-    line=dict(color='#c084fc', width=3, dash='dot')
+    line=dict(color='#c084fc', width=3, dash='dash')
 ))
 
 # 6. Tahmin Güven Bandı (Üst)
