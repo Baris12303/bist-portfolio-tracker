@@ -74,14 +74,45 @@ def kullanici_portfoyu_getir(user_email: str) -> dict:
     if not sb or not user_email:
         return {}
     
-    res = sb.table("portfoy").select("sembol, maliyet, adet").eq("user_email", user_email.lower().strip()).execute()
+    res = sb.table("portfoy").select("sembol, maliyet, adet, hedef, stop").eq("user_email", user_email.lower().strip()).execute()
     portfoy_dict = {}
     for row in res.data:
         portfoy_dict[row["sembol"]] = {
             "maliyet": float(row["maliyet"]),
-            "adet": float(row["adet"])
+            "adet": float(row["adet"]),
+            "hedef": float(row.get("hedef") or 0.0),
+            "stop": float(row.get("stop") or 0.0)
         }
     return portfoy_dict
+
+def kullanici_hedef_guncelle(user_email: str, sembol: str, hedef: float, stop: float):
+    """Kullanıcının portföyündeki bir varlığın hedef fiyat ve stop-loss değerini günceller."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return
+    sb.table("portfoy").update({
+        "hedef": hedef,
+        "stop": stop
+    }).eq("user_email", user_email.lower().strip()).eq("sembol", sembol.upper().strip()).execute()
+
+def kullanici_ayarlari_getir(user_email: str) -> dict:
+    """Kullanıcının bildirim ayarlarını getirir."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return {}
+    res = sb.table("kullanicilar").select("bildirim_ayarlari").eq("email", user_email.lower().strip()).execute()
+    if res.data and len(res.data) > 0 and res.data[0].get("bildirim_ayarlari"):
+        return res.data[0]["bildirim_ayarlari"]
+    return {}
+
+def kullanici_ayarlari_guncelle(user_email: str, ayarlar: dict):
+    """Kullanıcının bildirim ayarlarını günceller."""
+    sb = get_supabase()
+    if not sb or not user_email:
+        return
+    sb.table("kullanicilar").update({
+        "bildirim_ayarlari": ayarlar
+    }).eq("email", user_email.lower().strip()).execute()
 
 def kullanici_hisse_ekle_guncelle(user_email: str, sembol: str, maliyet: float, adet: float):
     """Kullanıcının portföyüne hisse/varlık ekler veya günceller."""
