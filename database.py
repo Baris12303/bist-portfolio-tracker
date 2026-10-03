@@ -10,8 +10,9 @@ def veritabanini_baslat():
     """Geriye dönük uyumluluk fonksiyonu."""
     pass
 
-def get_supabase() -> Client:
-    """Streamlit Secrets veya yerel ayarlardan Supabase istemcisini başlatır."""
+@st.cache_resource(ttl=3600)
+def get_supabase():
+    """Streamlit Secrets veya yerel ayarlardan Supabase istemcisini baslatir (onbellekli)."""
     url = st.secrets.get("SUPABASE_URL", "")
     key = st.secrets.get("SUPABASE_KEY", "")
     if not url or not key:
