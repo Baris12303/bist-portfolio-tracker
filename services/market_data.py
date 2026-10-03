@@ -6,7 +6,6 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 import requests
 import json, re, datetime
-from google import genai
 
 def get_yf_session():
     """Yahoo Finance sorguları için tarayıcı kimlikli güvenli oturum döndürür."""
@@ -46,6 +45,7 @@ def varlik_sinifi_belirle(sembol: str):
     else:
         return "ABD Borsası", "USD", "[ABD]"
 
+@st.cache_data(ttl=300, show_spinner=False)
 def varlik_gecmisi_getir(sembol: str, period="6mo") -> pd.DataFrame:
     """BIST, ABD, Kripto veya Gram Altın geçmiş verisini çeker."""
     s = sembol.upper().strip()
@@ -104,9 +104,16 @@ def get_company_fundamentals(symbol: str) -> dict:
     if symbol == "GRAM_ALTIN":
         return {}
     try:
-        session = get_yf_session()
-        t = yf.Ticker(symbol, session=session)
-        info = t.info if hasattr(t, 'info') and isinstance(t.info, dict) else {}
+        t = None
+        info = {}
+        try:
+            session = get_yf_session()
+            t = yf.Ticker(symbol, session=session)
+            info = t.info if isinstance(t.info, dict) else {}
+        except Exception:
+            # Yeni yfinance sürümleri requests.Session kabul etmez; kendi oturumuyla tekrar dene
+            t = yf.Ticker(symbol)
+            info = t.info if isinstance(t.info, dict) else {}
         fi = getattr(t, 'fast_info', None)
         
         market_cap = info.get("marketCap")

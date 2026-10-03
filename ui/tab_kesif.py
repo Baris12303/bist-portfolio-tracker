@@ -2,9 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import database
 from services.market_data import varlik_sinifi_belirle, varlik_gecmisi_getir, get_live_news, get_company_fundamentals, get_ai_news_sentiment
 
-def render_tab_kesif(is_demo, gemini_key):
+def render_tab_kesif(is_demo, gemini_key, user_email=""):
     st.title("Piyasa & Şirket Keşif Terminali")
     st.caption("BIST, NASDAQ, Kripto ve Emtia varlıklarını temel çarpanları, bilançosu ve canlı haberleriyle inceleyin.")
 

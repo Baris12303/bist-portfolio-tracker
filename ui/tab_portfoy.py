@@ -4,9 +4,16 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import database
-from services.market_data import varlik_sinifi_belirle
+from services.market_data import (
+    get_usd_try_rate,
+    varlik_sinifi_belirle,
+    varlik_gecmisi_getir,
+    get_live_news,
+    get_company_fundamentals,
+    get_ai_news_sentiment,
+)
 from core.rebalancing import REBALANCE_STRATEJILERI, hesapla_portfoy_rebalancing
-from core.alarms import denetle_portfoy_alarmlari
+from core.alarms import denetle_portfoy_alarmlari, gonder_alarm_epostasi
 
 def render_tab_portfoy(portfoy, user, user_email, is_demo, usd_try, gemini_key):
     st.title("Kişisel Portföy & Servet Paneli")
@@ -102,8 +109,10 @@ def render_tab_portfoy(portfoy, user, user_email, is_demo, usd_try, gemini_key):
         toplamKarYuzde = ((toplamGuncelDegerTL - toplamMaliyetTL) / toplamMaliyetTL) * 100 if toplamMaliyetTL > 0 else 0.0
 
         try:
-            bist_veri = yf.Ticker("XU100.IS").history(period="6mo")
-            bist_getiri = ((bist_veri['Close'].iloc[-1] - bist_veri['Close'].iloc[0]) / bist_veri['Close'].iloc[0]) * 100
+            bist_veri = varlik_gecmisi_getir("XU100.IS", period="6mo")
+            bist_ilk = float(bist_veri['Close'].iloc[0])
+            bist_son = float(bist_veri['Close'].iloc[-1])
+            bist_getiri = ((bist_son - bist_ilk) / bist_ilk) * 100 if bist_ilk > 0 else 0.0
         except Exception:
             bist_getiri = 0.0
 
@@ -904,7 +913,3 @@ Lütfen 3 başlık altında profesyonel, net ve Türkçe bir analiz sun:
                                     continue
                         except Exception as e:
                             st.error(f"Hata: {e}")
-
-
-# ------------------------------------------------------------------------------
-# SEKME 2: PİYASA & ŞİRKET KEŞİF TERMİNALİ

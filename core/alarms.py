@@ -3,6 +3,8 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from services.market_data import varlik_sinifi_belirle
+
 # --- AKILLI ALARM & BİLDİRİM RADARI MOTORU (SOLID - SRP) ---
 
 def denetle_portfoy_alarmlari(

@@ -345,7 +345,14 @@ if is_demo:
 
 if st.sidebar.button("Oturumu Kapat", use_container_width=True):
     st.session_state.kullanici = None
-    st.session_state.pop("demo_portfoy", None)
+    for _oturum_anahtari in (
+        "demo_portfoy",
+        "kullanici_hedefleri",
+        "bildirim_ayarlari",
+        "tetiklenen_alarmlar",
+        "veritabani_yuklendi",
+    ):
+        st.session_state.pop(_oturum_anahtari, None)
     st.rerun()
 
 st.sidebar.divider()
@@ -533,7 +540,17 @@ tab_portfoy, tab_kesif = st.tabs([
 # SEKME 1: PORTFÖY & SERVET YÖNETİMİ
 # ------------------------------------------------------------------------------
 with tab_portfoy:
-    render_tab_portfoy(portfoy, user, user_email, is_demo, usd_try, gemini_key)
+    render_tab_portfoy(
+        portfoy=portfoy,
+        user=user,
+        user_email=user_email,
+        is_demo=is_demo,
+        usd_try=usd_try,
+        gemini_key=gemini_key,
+    )
 
+# ------------------------------------------------------------------------------
+# SEKME 2: PİYASA & ŞİRKET KEŞİF TERMİNALİ
+# ------------------------------------------------------------------------------
 with tab_kesif:
-    render_tab_kesif(is_demo, gemini_key)
+    render_tab_kesif(is_demo=is_demo, gemini_key=gemini_key, user_email=user_email)
